@@ -11,6 +11,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.system.toolbox.core.Activation
 import com.system.toolbox.core.StoreSession
+import com.system.toolbox.core.VerifyResult
 import com.system.toolbox.ui.AppRoot
 import com.system.toolbox.ui.screens.ActivationScreen
 import com.system.toolbox.ui.theme.SystemToolboxTheme
@@ -22,7 +23,7 @@ class MainActivity : ComponentActivity() {
         val code = getSharedPreferences(Activation.PREFS, Context.MODE_PRIVATE)
             .getString(Activation.KEY_CODE, null) ?: return false
         val sn = Activation.readSn() ?: return false
-        return Activation.verify(code, sn)
+        return Activation.verify(code, sn) == VerifyResult.SUCCESS
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

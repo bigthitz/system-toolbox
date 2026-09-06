@@ -16,11 +16,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -39,14 +39,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.system.toolbox.core.Activation
+import com.system.toolbox.core.VerifyResult
 
 /**
- * 设备激活页：未通过公钥校验前拦截进入主功能。
- *  - 展示本机序列号（/data/misc/bbksn），支持复制
- *  - 序列号不可读时允许手动输入
- *  - 粘贴服务器签发的激活码，本地公钥验签通过即永久激活（存本地）
+ * 设备激活页（未通过公钥校验前拦截进入主功能）。
+ *  - 展示本机序列号（/data/misc/bbksn），支持复制；不可读时可手动输入
+ *  - 粘贴服务器签发的激活码，公钥验签 + 授权时间校验通过即激活（存本地，过期自动失效）
  */
 @Composable
 fun ActivationScreen(
@@ -59,30 +60,27 @@ fun ActivationScreen(
     var snInput by rememberSaveable { mutableStateOf("") }
     var code by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
-    var activating by remember { mutableStateOf(false) }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
     fun activate() {
         val sn = snRead ?: snInput.trim()
         if (sn.isEmpty()) {
-            error = "无法获取序列号，请手动输入"
+            error = "无法获取设备序列号"
             return
         }
         if (code.isBlank()) {
             error = "请输入激活码"
             return
         }
-        activating = true
-        error = null
-        val ok = Activation.verify(code, sn)
-        activating = false
-        if (ok) {
-            prefs.edit().putString(Activation.KEY_CODE, code.trim()).apply()
-            toast("激活成功")
-            onActivated()
-        } else {
-            error = "激活码无效：请确认与本机序列号匹配"
+        when (Activation.verify(code, sn)) {
+            VerifyResult.SUCCESS -> {
+                prefs.edit().putString(Activation.KEY_CODE, code.trim()).apply()
+                toast("激活成功")
+                onActivated()
+            }
+            VerifyResult.EXPIRED -> error = "激活码已过期，请重新获取"
+            VerifyResult.INVALID -> error = "激活码无效"
         }
     }
 
@@ -93,30 +91,15 @@ fun ActivationScreen(
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                Icons.Filled.Key,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(32.dp)
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = "设备激活",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Spacer(Modifier.height(8.dp))
         Text(
-            text = "本工具仅限授权设备使用，请将下方序列号发送给管理员获取激活码。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            text = "激活",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
         )
 
         Spacer(Modifier.height(20.dp))
 
-        // 序列号
+        // 设备序列号
         Surface(
             shape = RoundedCornerShape(14.dp),
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -160,7 +143,7 @@ fun ActivationScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // 激活码
+        // 激活码输入
         OutlinedTextField(
             value = code,
             onValueChange = {
@@ -170,25 +153,24 @@ fun ActivationScreen(
             modifier = Modifier.fillMaxWidth(),
             minLines = 3,
             maxLines = 6,
-            placeholder = { Text("粘贴激活码（Base64URL 签名数据）") },
+            singleLine = false,
+            placeholder = { Text("请输入激活码") },
             isError = error != null,
-            supportingText = { error?.let { Text(it, color = MaterialTheme.colorScheme.error) } }
+            supportingText = { error?.let { Text(it, color = MaterialTheme.colorScheme.error) } },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { activate() })
         )
 
-        Spacer(Modifier.height(12.dp))
-
-        Button(
-            onClick = { activate() },
-            enabled = !activating,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (activating) "校验中…" else "激活")
-        }
         TextButton(
             onClick = {
                 val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
                 val text = cm?.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
-                if (text.isNotBlank()) code = text.trim() else toast("剪贴板为空")
+                if (text.isNotBlank()) {
+                    code = text.trim()
+                    error = null
+                } else {
+                    toast("剪贴板为空")
+                }
             },
             modifier = Modifier.align(Alignment.End)
         ) {

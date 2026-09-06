@@ -1,5 +1,7 @@
 package com.system.toolbox.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,11 +17,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.system.toolbox.R
 
 @Composable
 fun AboutScreen() {
@@ -31,6 +33,9 @@ fun AboutScreen() {
             "未知"
         }
     }
+    val appIcon = remember {
+        rasterize(context.packageManager.getApplicationIcon(context.packageName))
+    }
 
     Column(
         modifier = Modifier
@@ -40,7 +45,7 @@ fun AboutScreen() {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Image(
-            painter = painterResource(id = R.mipmap.ic_launcher),
+            bitmap = appIcon,
             contentDescription = "应用图标",
             modifier = Modifier
                 .size(112.dp)
@@ -54,4 +59,17 @@ fun AboutScreen() {
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+/**
+ * 把任意应用图标（包括 AdaptiveIcon）栅格化为位图，
+ * 避免 Compose 无法直接加载自适应图标 xml 导致的崩溃。
+ */
+private fun rasterize(drawable: android.graphics.drawable.Drawable): ImageBitmap {
+    val sizePx = 256
+    val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+    drawable.setBounds(0, 0, sizePx, sizePx)
+    drawable.draw(canvas)
+    return bitmap.asImageBitmap()
 }

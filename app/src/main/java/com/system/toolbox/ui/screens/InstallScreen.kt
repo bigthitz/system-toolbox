@@ -1,6 +1,7 @@
 package com.system.toolbox.ui.screens
 
 import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -15,71 +16,137 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.system.toolbox.core.SilentInstaller
+import kotlinx.coroutines.launch
+
+private enum class TaskState { WAITING, INSTALLING, SUCCESS, FAILED }
+
+private data class InstallTask(
+    val uri: Uri,
+    val name: String,
+    val state: TaskState = TaskState.WAITING,
+    val note: String? = null
+)
 
 @Composable
 fun InstallScreen(
     onBack: () -> Unit,
     toast: (String) -> Unit
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var installing by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-    fun startInstall(uri: Uri) {
-        installing = true
-        SilentInstaller.install(context, uri) { result ->
-            installing = false
-            if (result.ok) {
-                toast("安装成功：${result.packageName ?: "完成"}")
-            } else {
-                toast(result.message)
+    var tasks by remember { mutableStateOf<List<InstallTask>>(emptyList()) }
+    var processing by remember { mutableStateOf(false) }
+
+    val doneCount = tasks.count { it.state == TaskState.SUCCESS }
+    val failCount = tasks.count { it.state == TaskState.FAILED }
+    val installingIndex = tasks.indexOfFirst { it.state == TaskState.INSTALLING }
+    val total = tasks.size
+
+    fun taskDisplayName(uri: Uri): String {
+        var name: String? = null
+        try {
+            context.contentResolver.query(
+                uri,
+                arrayOf(OpenableColumns.DISPLAY_NAME),
+                null, null, null
+            )?.use { c ->
+                if (c.moveToFirst()) {
+                    val idx = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) name = c.getString(idx)
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "已选文件"
+    }
+
+    fun addFiles(uris: List<Uri>) {
+        if (uris.isEmpty()) {
+            toast("已取消选择")
+            return
+        }
+        val fresh = uris.map { InstallTask(uri = it, name = taskDisplayName(it)) }
+        tasks = tasks + fresh
+        if (!processing) {
+            processing = true
+            scope.launch {
+                var index = 0
+                while (index < tasks.size) {
+                    val current = tasks.getOrNull(index) ?: break
+                    if (current.state == TaskState.WAITING) {
+                        tasks = tasks.mapIndexed { i, t ->
+                            if (i == index) t.copy(state = TaskState.INSTALLING) else t
+                        }
+                        val result = SilentInstaller.installAndWait(context, current.uri, index)
+                        tasks = tasks.mapIndexed { i, t ->
+                            if (i == index) {
+                                t.copy(
+                                    state = if (result.ok) TaskState.SUCCESS else TaskState.FAILED,
+                                    note = result.message
+                                )
+                            } else {
+                                t
+                            }
+                        }
+                    }
+                    index++
+                }
+                processing = false
             }
         }
     }
 
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) {
-            toast("已取消选择")
-        } else {
-            startInstall(uri)
+    fun clearFinished() {
+        tasks = tasks.filter {
+            it.state == TaskState.WAITING || it.state == TaskState.INSTALLING
         }
     }
 
+    fun clearAll() {
+        if (!processing) tasks = emptyList()
+    }
+
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> addFiles(uris) }
+
     fun launchPicker() {
-        if (installing) return
-        picker.launch(
-            arrayOf(
-                "application/vnd.android.package-archive",
-                "application/octet-stream",
-                "*/*"
-            )
-        )
+        if (processing) return
+        picker.launch(arrayOf("*/*"))
     }
 
     Column(
@@ -104,8 +171,9 @@ fun InstallScreen(
             )
         }
 
-        Spacer(Modifier.height(20.dp))
+        Spacer(Modifier.height(8.dp))
 
+        // 主操作卡片
         Surface(
             shape = RoundedCornerShape(28.dp),
             color = MaterialTheme.colorScheme.surface,
@@ -114,13 +182,13 @@ fun InstallScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 32.dp),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(
                     modifier = Modifier
-                        .size(72.dp)
-                        .clip(RoundedCornerShape(22.dp))
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(20.dp))
                         .background(MaterialTheme.colorScheme.primaryContainer),
                     contentAlignment = Alignment.Center
                 ) {
@@ -128,26 +196,27 @@ fun InstallScreen(
                         imageVector = Icons.Filled.SystemUpdate,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(34.dp)
+                        modifier = Modifier.size(30.dp)
                     )
                 }
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(16.dp))
                 Text(
-                    text = "静默安装",
+                    text = "静默批量安装",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    text = "选择本地 APK 文件，将跳过系统确认界面直接完成安装，支持覆盖安装与降级替换。",
+                    text = "支持一次选择多个文件、任意后缀名（仅识别其中的 APK），" +
+                        "支持覆盖安装与降级替换。",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center
                 )
-                Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(20.dp))
                 Button(
                     onClick = { launchPicker() },
-                    enabled = !installing
+                    enabled = !processing
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Add,
@@ -155,25 +224,63 @@ fun InstallScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(Modifier.width(6.dp))
-                    Text(if (installing) "正在安装…" else "选择 APK 文件")
+                    Text(if (tasks.isEmpty()) "选择文件（可多选）" else "继续添加文件")
+                }
+                if (tasks.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    TextButton(
+                        onClick = {
+                            if (tasks.all { it.state == TaskState.SUCCESS || it.state == TaskState.FAILED }) {
+                                clearAll()
+                            } else {
+                                clearFinished()
+                            }
+                        },
+                        enabled = !processing || doneCount + failCount > 0
+                    ) {
+                        Text(if (processing) "移除已完成项" else "清空列表")
+                    }
                 }
             }
         }
 
-        if (installing) {
-            Spacer(Modifier.height(24.dp))
-            LinearProgressIndicator(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-            )
+        if (tasks.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+
+            Surface(
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                shape = RoundedCornerShape(999.dp)
+            ) {
+                Text(
+                    text = if (processing && installingIndex >= 0) {
+                        "正在安装 ${installingIndex + 1}/$total …"
+                    } else {
+                        "共 $total 个 · 成功 $doneCount · 失败 $failCount"
+                    },
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                )
+            }
+
+            Spacer(Modifier.height(6.dp))
+
+            if (processing) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                )
+            }
+
             Spacer(Modifier.height(10.dp))
-            Text(
-                text = "正在静默安装，请稍候…",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.primary
-            )
+
+            tasks.forEachIndexed { index, task ->
+                TaskRow(task = task)
+                Spacer(Modifier.height(8.dp))
+            }
+            Spacer(Modifier.height(8.dp))
         }
 
         Spacer(Modifier.height(24.dp))
@@ -184,11 +291,90 @@ fun InstallScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = "提示：本功能要求应用以 system 身份运行，并已使用平台证书签名。",
+                text = "提示：本功能要求应用以 system 身份运行，并已使用平台证书签名。" +
+                    "每个文件安装完成后会轮询检测目标应用是否已安装，界面不会卡在等待状态。",
                 style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
             )
         }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+@Composable
+private fun TaskRow(task: InstallTask) {
+    val (bg, tint) = when (task.state) {
+        TaskState.WAITING -> MaterialTheme.colorScheme.surfaceVariant to
+            MaterialTheme.colorScheme.onSurfaceVariant
+        TaskState.INSTALLING -> MaterialTheme.colorScheme.primaryContainer to
+            MaterialTheme.colorScheme.primary
+        TaskState.SUCCESS -> MaterialTheme.colorScheme.secondaryContainer to
+            MaterialTheme.colorScheme.onSecondaryContainer
+        TaskState.FAILED -> MaterialTheme.colorScheme.errorContainer to
+            MaterialTheme.colorScheme.onErrorContainer
+    }
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shadowElevation = 1.dp,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(bg),
+                contentAlignment = Alignment.Center
+            ) {
+                when (task.state) {
+                    TaskState.WAITING -> Icon(
+                        Icons.Filled.Description,
+                        contentDescription = null,
+                        tint = tint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    TaskState.INSTALLING -> CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                        color = tint
+                    )
+                    TaskState.SUCCESS -> Icon(
+                        Icons.Filled.Check,
+                        contentDescription = null,
+                        tint = tint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    TaskState.FAILED -> Icon(
+                        Icons.Filled.Close,
+                        contentDescription = null,
+                        tint = tint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = task.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1
+                )
+                if (task.note != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = task.note,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2
+                    )
+                }
+            }
+        }
     }
 }

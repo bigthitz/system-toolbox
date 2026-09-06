@@ -8,7 +8,10 @@ import android.os.Build
 
 /**
  * 接收 PackageInstaller 提交后的安装结果广播。
- * 由 [SilentInstaller] 的 PendingIntent 显式触发，仅本应用可用。
+ * 由 [SilentInstaller] 的 PendingIntent 显式触发，仅本应用可见。
+ *
+ * 说明：需要用户确认的场景极少发生（system 身份安装不会触发），
+ * 若出现则通过 Intent.EXTRA_INTENT 取出系统下发的确认界面并拉起。
  */
 class InstallResultReceiver : BroadcastReceiver() {
 
@@ -37,17 +40,7 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
 
             PackageInstaller.STATUS_PENDING_USER_ACTION -> {
-                @Suppress("DEPRECATION")
-                val confirmIntent: Intent? =
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        intent.getParcelableExtra(
-                            PackageInstaller.EXTRA_STATUS_INTENT,
-                            Intent::class.java
-                        )
-                    } else {
-                        @Suppress("DEPRECATION")
-                        intent.getParcelableExtra(PackageInstaller.EXTRA_STATUS_INTENT)
-                    }
+                val confirmIntent = readParcelable(intent)
                 if (confirmIntent != null) {
                     confirmIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(confirmIntent)
@@ -64,18 +57,26 @@ class InstallResultReceiver : BroadcastReceiver() {
             }
 
             else -> {
-                val legacy = intent.getIntExtra(PackageInstaller.EXTRA_LEGACY_STATUS, 0)
-                val fallback = if (legacy != 0) legacy else status
                 SilentInstaller.deliverResult(
                     context,
                     sessionId,
                     SilentInstaller.InstallResult(
                         false,
                         packageName,
-                        statusMessage?.takeIf { it.isNotBlank() } ?: "安装失败（错误码 $fallback）"
+                        statusMessage?.takeIf { it.isNotBlank() }
+                            ?: "安装失败（状态码 $status）"
                     )
                 )
             }
+        }
+    }
+
+    private fun readParcelable(intent: Intent): Intent? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_INTENT)
         }
     }
 }

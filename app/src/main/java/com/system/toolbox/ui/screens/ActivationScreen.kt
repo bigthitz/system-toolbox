@@ -21,6 +21,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -160,6 +161,15 @@ fun ActivationScreen(
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(onDone = { activate() })
         )
+
+        Spacer(Modifier.height(14.dp))
+
+        Button(
+            onClick = { activate() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("确定")
+        }
 
         TextButton(
             onClick = {

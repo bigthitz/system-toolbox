@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 工具箱提手 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M44,24 L64,24 A3,3 0 0 1 67,27 L67,38 A3,3 0 0 1 64,41 L44,41 A3,3 0 0 1 41,38 L41,27 A3,3 0 0 1 44,24 Z" />
+    <!-- 工具箱箱体（镂空，公文包样式） -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M32,41 L76,41 A8,8 0 0 1 84,49 L84,72 A8,8 0 0 1 76,80 L32,80 A8,8 0 0 1 24,72 L24,49 A8,8 0 0 1 32,41 Z M40,51 L68,51 A6,6 0 0 1 74,57 L74,70 A6,6 0 0 1 68,76 L40,76 A6,6 0 0 1 34,70 L34,57 A6,6 0 0 1 40,51 Z" />
+</vector>

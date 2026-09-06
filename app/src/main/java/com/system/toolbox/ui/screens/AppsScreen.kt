@@ -196,7 +196,9 @@ fun AppsScreen(toast: (String) -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    vertical = 12.dp,
+                    start = 0.dp,
+                    top = 12.dp,
+                    end = 0.dp,
                     bottom = 24.dp
                 )
             ) {

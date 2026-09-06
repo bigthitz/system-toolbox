@@ -1,0 +1,79 @@
+name: Build APK
+
+# 触发方式：push 到 main / 手动 workflow_dispatch
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install/refresh SDK packages
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platforms;android-34" "build-tools;34.0.0" || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Build release APK
+        run: gradle :app:assembleRelease --no-daemon
+
+      # ---- 可选：使用 platform 证书重签名（需在仓库 Settings -> Secrets 中配置） ----
+      # PLATFORM_PK8    : platform.pk8 的 base64
+      # PLATFORM_X509   : platform.x509.pem 的 base64
+      - name: Sign with platform key (optional)
+        id: platform-sign
+        if: env.PLATFORM_PK8 != '' && env.PLATFORM_X509 != ''
+        env:
+          PLATFORM_PK8: ${{ secrets.PLATFORM_PK8 }}
+          PLATFORM_X509: ${{ secrets.PLATFORM_X509 }}
+        run: |
+          set -eux
+          echo "$PLATFORM_PK8" | base64 -d > platform.pk8
+          echo "$PLATFORM_X509" | base64 -d > platform.x509.pem
+          BT_DIR="$ANDROID_SDK_ROOT/build-tools"
+          TOOLS=$(ls -d "$BT_DIR"/*/ | sort -V | tail -n1)
+          ZALIGN="$TOOLS/zipalign"
+          APKSIGNER="$TOOLS/apksigner"
+          "$ZALIGN" -f -p 4 app/build/outputs/apk/release/app-release.apk app-aligned.apk
+          "$APKSIGNER" sign \
+            --key platform.pk8 \
+            --cert platform.x509.pem \
+            --v1-signing-enabled true \
+            --out SystemToolbox-platform-signed.apk app-aligned.apk
+          echo "signed=yes" >> "$GITHUB_OUTPUT"
+
+      - name: Upload APK (debug-signed, 可测试安装)
+        if: steps.platform-sign.outputs.signed != 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-toolbox-debug-signed
+          path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload APK (platform-signed, 可直接用于系统部署)
+        if: steps.platform-sign.outputs.signed == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-toolbox-platform-signed
+          path: SystemToolbox-platform-signed.apk

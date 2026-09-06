@@ -146,14 +146,16 @@ object AppLimit {
 
     // ---- 缓存文件读写 ----
 
-    private fun readCacheFile(context: Context): Cached? = try {
-        val file = File(context.filesDir, CACHE_FILE)
-        if (!file.exists()) return null
-        val json = JSONObject(file.readText())
-        val config = parse(json.optJSONObject("config")?.toString() ?: return null)
-        if (config == null) null else Cached(config, json.optLong("fetchedAt", 0L))
-    } catch (_: Exception) {
-        null
+    private fun readCacheFile(context: Context): Cached? {
+        return try {
+            val file = File(context.filesDir, CACHE_FILE)
+            if (!file.exists()) return null
+            val json = JSONObject(file.readText())
+            val config = parse(json.optJSONObject("config")?.toString() ?: return null)
+            if (config == null) null else Cached(config, json.optLong("fetchedAt", 0L))
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun writeCacheFile(context: Context, cached: Cached) {

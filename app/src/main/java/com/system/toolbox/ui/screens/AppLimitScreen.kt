@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.system.toolbox.core.AppEntry
@@ -238,10 +239,11 @@ fun AppLimitScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                     else if (config.windows.isEmpty()) "未配置（不限制）"
                     else config.windows.joinToString(" / ")
                 )
+                val cachedSnapshot = cached
                 InfoRow(
                     "配置更新",
-                    if (cached == null) "尚未获取（联网后自动拉取）"
-                    else "云端获取于 ${formatTime(cached.fetchedAt)}（24h 自动更新，失败回退缓存）"
+                    if (cachedSnapshot == null) "尚未获取（联网后自动拉取）"
+                    else "云端获取于 ${formatTime(cachedSnapshot.fetchedAt)}（24h 自动更新，失败回退缓存）"
                 )
 
                 Spacer(Modifier.height(12.dp))

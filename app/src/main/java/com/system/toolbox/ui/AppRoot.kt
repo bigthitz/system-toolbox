@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -30,13 +29,20 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.system.toolbox.ui.screens.AboutScreen
 import com.system.toolbox.ui.screens.AppsScreen
-import com.system.toolbox.ui.screens.HomeScreen
+import com.system.toolbox.ui.screens.FunctionsScreen
+import com.system.toolbox.ui.screens.InstallScreen
 import kotlinx.coroutines.launch
 
+private object Routes {
+    const val Functions = "functions"
+    const val Install = "install"
+    const val Freeze = "freeze"
+    const val About = "about"
+}
+
 private enum class Destination(val route: String, val label: String, val icon: ImageVector) {
-    Home("home", "首页", Icons.Filled.Home),
-    Apps("apps", "应用", Icons.Filled.Apps),
-    About("about", "关于", Icons.Filled.Info),
+    Functions(Routes.Functions, "功能", Icons.Filled.Apps),
+    About(Routes.About, "关于", Icons.Filled.Info),
 }
 
 @Composable
@@ -61,40 +67,53 @@ fun AppRoot() {
         }
     }
 
+    val tabRoutes = Destination.entries.map { it.route }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            NavigationBar {
-                Destination.entries.forEach { destination ->
-                    NavigationBarItem(
-                        selected = currentRoute == destination.route,
-                        onClick = { goTab(destination.route) },
-                        icon = { Icon(destination.icon, contentDescription = destination.label) },
-                        label = { Text(destination.label) }
-                    )
+            if (currentRoute in tabRoutes) {
+                NavigationBar {
+                    Destination.entries.forEach { destination ->
+                        NavigationBarItem(
+                            selected = currentRoute == destination.route,
+                            onClick = { goTab(destination.route) },
+                            icon = { Icon(destination.icon, contentDescription = destination.label) },
+                            label = { Text(destination.label) }
+                        )
+                    }
                 }
             }
         }
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Destination.Home.route,
+            startDestination = Routes.Functions,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding),
             enterTransition = { fadeIn(animationSpec = tween(260)) },
             exitTransition = { fadeOut(animationSpec = tween(180)) }
         ) {
-            composable(Destination.Home.route) {
-                HomeScreen(
-                    onOpenApps = { goTab(Destination.Apps.route) },
+            composable(Routes.Functions) {
+                FunctionsScreen(
+                    onOpenInstall = { navController.navigate(Routes.Install) },
+                    onOpenFreeze = { navController.navigate(Routes.Freeze) }
+                )
+            }
+            composable(Routes.Install) {
+                InstallScreen(
+                    onBack = { navController.popBackStack() },
                     toast = toast
                 )
             }
-            composable(Destination.Apps.route) {
-                AppsScreen(toast = toast)
+            composable(Routes.Freeze) {
+                AppsScreen(
+                    onBack = { navController.popBackStack() },
+                    toast = toast
+                )
             }
-            composable(Destination.About.route) {
+            composable(Routes.About) {
                 AboutScreen()
             }
         }

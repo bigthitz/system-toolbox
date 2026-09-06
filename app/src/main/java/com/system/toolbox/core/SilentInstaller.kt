@@ -4,7 +4,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageInstaller
-import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -16,8 +15,6 @@ import java.io.IOException
  * 无需弹窗的条件：应用持有 INSTALL_PACKAGES 权限（system/privileged 签名）。
  */
 object SilentInstaller {
-
-    const val ACTION_INSTALL_RESULT = "com.system.toolbox.action.INSTALL_RESULT"
 
     data class InstallResult(
         val ok: Boolean,
@@ -46,10 +43,6 @@ object SilentInstaller {
                 val params = PackageInstaller.SessionParams(
                     PackageInstaller.SessionParams.MODE_FULL_INSTALL
                 )
-                params.setInstallFlags(
-                    PackageManager.INSTALL_REPLACE_EXISTING or
-                        PackageManager.INSTALL_ALLOW_DOWNGRADE
-                )
 
                 val installer = context.packageManager.packageInstaller
                 val createdId = installer.createSession(params)
@@ -59,8 +52,7 @@ object SilentInstaller {
                 val sender = PendingIntent.getBroadcast(
                     context,
                     createdId,
-                    Intent(context, InstallResultReceiver::class)
-                        .setAction(ACTION_INSTALL_RESULT),
+                    Intent(context, InstallResultReceiver::class),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 ).intentSender
 

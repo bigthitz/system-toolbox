@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Terminal
@@ -38,6 +39,7 @@ import androidx.compose.ui.unit.dp
 fun FunctionsScreen(
     onOpenInstall: () -> Unit,
     onOpenFreeze: () -> Unit,
+    onOpenAppLimit: () -> Unit,
     onOpenStore: () -> Unit,
     onOpenShell: () -> Unit,
     onOpenBrowser: () -> Unit
@@ -72,6 +74,15 @@ fun FunctionsScreen(
             container = MaterialTheme.colorScheme.tertiaryContainer,
             iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
             onClick = onOpenFreeze
+        )
+        Spacer(Modifier.height(14.dp))
+
+        FeatureEntry(
+            title = "应用限时",
+            icon = Icons.Filled.Schedule,
+            container = MaterialTheme.colorScheme.errorContainer,
+            iconTint = MaterialTheme.colorScheme.onErrorContainer,
+            onClick = onOpenAppLimit
         )
         Spacer(Modifier.height(14.dp))
 

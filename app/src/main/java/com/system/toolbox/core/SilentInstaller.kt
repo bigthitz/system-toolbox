@@ -164,7 +164,8 @@ object SilentInstaller {
             if (bcast != null) {
                 when {
                     bcast.ok -> {
-                        // 广播明确成功，立即结束
+                        // 广播明确成功，立即结束；纳入限时管理
+                        ManagedApps.record(context, meta.packageName)
                         return InstallResult(
                             true,
                             meta.packageName,
@@ -192,6 +193,7 @@ object SilentInstaller {
                     now.lastUpdateTime != before.lastUpdateTime
             }
             if (changed) {
+                ManagedApps.record(context, meta.packageName)
                 return InstallResult(true, meta.packageName, "安装成功：${meta.packageName}")
             }
         }

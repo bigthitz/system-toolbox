@@ -32,6 +32,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.system.toolbox.ui.screens.AboutScreen
+import com.system.toolbox.ui.screens.AppLimitScreen
 import com.system.toolbox.ui.screens.AppsScreen
 import com.system.toolbox.ui.screens.BrowserScreen
 import com.system.toolbox.ui.screens.FunctionsScreen
@@ -50,6 +51,7 @@ private object Routes {
     const val Functions = "functions"
     const val Install = "install"
     const val Freeze = "freeze"
+    const val AppLimit = "applimit"
     const val Store = "store"
     const val Shell = "shell"
     const val Browser = "browser"
@@ -156,6 +158,7 @@ fun AppRoot() {
                 FunctionsScreen(
                     onOpenInstall = { navController.navigate(Routes.Install) },
                     onOpenFreeze = { navController.navigate(Routes.Freeze) },
+                    onOpenAppLimit = { navController.navigate(Routes.AppLimit) },
                     onOpenStore = { navController.navigate(Routes.Store) },
                     onOpenShell = { navController.navigate(Routes.Shell) },
                     onOpenBrowser = { navController.navigate(Routes.Browser) }
@@ -169,6 +172,12 @@ fun AppRoot() {
             }
             composable(Routes.Freeze) {
                 AppsScreen(
+                    onBack = { navController.popBackStack() },
+                    toast = toast
+                )
+            }
+            composable(Routes.AppLimit) {
+                AppLimitScreen(
                     onBack = { navController.popBackStack() },
                     toast = toast
                 )

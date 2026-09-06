@@ -25,7 +25,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -46,7 +45,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.system.toolbox.core.SilentInstaller
 import kotlinx.coroutines.launch
@@ -182,38 +180,9 @@ fun InstallScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(MaterialTheme.colorScheme.primaryContainer),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.SystemUpdate,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(30.dp)
-                    )
-                }
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = "静默批量安装",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    text = "支持一次选择多个文件、任意后缀名（仅识别其中的 APK），" +
-                        "支持覆盖安装与降级替换。",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(20.dp))
                 Button(
                     onClick = { launchPicker() },
                     enabled = !processing
@@ -283,20 +252,6 @@ fun InstallScreen(
             Spacer(Modifier.height(8.dp))
         }
 
-        Spacer(Modifier.height(24.dp))
-        Surface(
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = "提示：本功能要求应用以 system 身份运行，并已使用平台证书签名。" +
-                    "每个文件安装完成后会轮询检测目标应用是否已安装，界面不会卡在等待状态。",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-            )
-        }
         Spacer(Modifier.height(24.dp))
     }
 }

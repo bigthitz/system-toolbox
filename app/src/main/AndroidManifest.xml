@@ -17,6 +17,9 @@
     <!-- 冻结 / 解冻应用 -->
     <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
 
+    <!-- 应用商店：访问豌豆荚搜索与下载 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- 列出全部已安装应用（含系统应用） -->
     <uses-permission
         android:name="android.permission.QUERY_ALL_PACKAGES"
@@ -29,7 +32,8 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.SystemToolbox"
-        tools:ignore="MissingApplicationIcon,ScopedStorage,AllowBackup">
+        android:usesCleartextTraffic="true"
+        tools:ignore="MissingApplicationIcon,ScopedStorage,AllowBackup,UnusedAttribute">
 
         <activity
             android:name=".MainActivity"

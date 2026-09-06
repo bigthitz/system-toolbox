@@ -1,6 +1,5 @@
 package com.system.toolbox.ui.screens
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -35,7 +35,8 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun FunctionsScreen(
     onOpenInstall: () -> Unit,
-    onOpenFreeze: () -> Unit
+    onOpenFreeze: () -> Unit,
+    onOpenStore: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -54,7 +55,6 @@ fun FunctionsScreen(
 
         FeatureEntry(
             title = "应用安装",
-            description = "静默安装本地 APK，跳过系统确认界面，支持覆盖安装与降级替换。",
             icon = Icons.Filled.SystemUpdate,
             container = MaterialTheme.colorScheme.primaryContainer,
             iconTint = MaterialTheme.colorScheme.primary,
@@ -64,11 +64,19 @@ fun FunctionsScreen(
 
         FeatureEntry(
             title = "应用冻结",
-            description = "冻结不常用的应用，冻结后不再启动、不留后台，需要时一键解冻。",
             icon = Icons.Filled.AcUnit,
             container = MaterialTheme.colorScheme.tertiaryContainer,
             iconTint = MaterialTheme.colorScheme.onTertiaryContainer,
             onClick = onOpenFreeze
+        )
+        Spacer(Modifier.height(14.dp))
+
+        FeatureEntry(
+            title = "应用商店",
+            icon = Icons.Filled.Storefront,
+            container = MaterialTheme.colorScheme.secondaryContainer,
+            iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
+            onClick = onOpenStore
         )
 
         Spacer(Modifier.height(32.dp))
@@ -78,7 +86,6 @@ fun FunctionsScreen(
 @Composable
 private fun FeatureEntry(
     title: String,
-    description: String,
     icon: ImageVector,
     container: Color,
     iconTint: Color,
@@ -93,7 +100,7 @@ private fun FeatureEntry(
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
@@ -111,21 +118,12 @@ private fun FeatureEntry(
                 )
             }
             Spacer(Modifier.width(16.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = description,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2
-                )
-            }
-            Spacer(Modifier.width(8.dp))
+            Text(
+                text = title,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold
+            )
             Icon(
                 imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                 contentDescription = null,

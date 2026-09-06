@@ -78,10 +78,15 @@ fun AppsScreen(
     val all = apps ?: emptyList()
     val frozenCount = all.count { it.isFrozen }
     val shown = remember(all, query) {
-        if (query.isBlank()) all
+        val filtered = if (query.isBlank()) all
         else all.filter {
             it.label.contains(query, true) || it.packageName.contains(query, true)
         }
+        // 已冻结的应用排在前面
+        filtered.sortedWith(
+            compareByDescending<AppEntry> { it.isFrozen }
+                .thenBy { it.label.lowercase() }
+        )
     }
 
     fun applyResult(pkg: String, frozen: Boolean, res: OpResult) {
@@ -127,19 +132,12 @@ fun AppsScreen(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
             }
-            Column(Modifier.weight(1f)) {
-                Text(
-                    text = "应用冻结",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold
-                )
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = "冻结后应用不再启动、不留后台，可随时解冻恢复。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                text = "应用冻结",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
             IconButton(onClick = { scope.launch { load() } }) {
                 Icon(Icons.Filled.Refresh, contentDescription = "刷新列表")
             }

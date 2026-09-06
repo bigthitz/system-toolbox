@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
  * 无需弹窗的条件：应用持有 INSTALL_PACKAGES 权限（system/privileged 签名）。
  *
  * 结果判定：仅靠系统广播在高版本上可能丢失（表现为安装成功但界面一直等待），
- * 因此 [installAndWait] 会同时轮询 PackageManager 中目标包的版本/安装时间变化来兜底。
+ * 因此会同时轮询 PackageManager 中目标包的版本/安装时间变化来兜底。
  */
 object SilentInstaller {
 
@@ -98,7 +98,7 @@ object SilentInstaller {
         msg?.contains("要求确认") == true
 
     /**
-     * 提交一次安装，并等待确认完成。
+     * 从用户选择的 URI 安装（如文档选择器）。
      * - 先复制到缓存并解析包名；
      * - 记录安装前快照；
      * - 提交 Session 后同时监听系统广播与轮询目标包状态，直到明确成功/失败/超时。
@@ -108,7 +108,7 @@ object SilentInstaller {
             context.cacheDir,
             "install_pending_${System.currentTimeMillis()}_$index.apk"
         )
-        try {
+        return try {
             // 1. 复制到本地缓存（doc picker 的读取授权只在本次进程内稳定）
             withContext(Dispatchers.IO) {
                 val input = context.contentResolver.openInputStream(uri)
@@ -118,79 +118,94 @@ object SilentInstaller {
                 }
             }
             if (!cached.exists() || cached.length() <= 0L) {
-                return InstallResult(false, null, "文件为空或读取失败")
-            }
-
-            // 2. 解析 APK（任意扩展名都可选，这里做真实校验）
-            val meta = parseApk(context, cached)
-            if (meta == null) {
-                return InstallResult(false, null, "所选文件不是有效的 APK")
-            }
-
-            // 3. 安装前快照
-            val before = installedState(context, meta.packageName)
-
-            // 4. 提交安装
-            val lastBroadcast = AtomicReference<InstallResult?>()
-            install(context, cached) { result ->
-                lastBroadcast.set(result)
-            }
-
-            // 5. 轮询目标包状态（辅助判定）+ 系统广播（快速失败反馈）
-            val timeoutMs = 120_000L
-            val start = System.currentTimeMillis()
-            while (System.currentTimeMillis() - start < timeoutMs) {
-                delay(700)
-
-                val bcast = lastBroadcast.get()
-                if (bcast != null) {
-                    when {
-                        bcast.ok -> {
-                            // 广播明确成功，立即结束
-                            return InstallResult(
-                                true,
-                                meta.packageName,
-                                "安装成功：${meta.packageName}"
-                            )
-                        }
-
-                        !isUserConfirmPending(bcast.message) -> {
-                            // 广播为硬性失败（如签名/兼容性错误）
-                            return bcast.copy(packageName = meta.packageName)
-                        }
-                        // else: 系统要求人工确认，继续轮询等待最终结果
-                    }
-                }
-
-                // 轮询：目标包出现或版本/安装时间发生变化
-                val now = installedState(context, meta.packageName)
-                val changed = if (now == null) {
-                    false
-                } else if (before == null) {
-                    true
-                } else {
-                    now.versionCode != before.versionCode ||
-                        now.firstInstallTime != before.firstInstallTime ||
-                        now.lastUpdateTime != before.lastUpdateTime
-                }
-                if (changed) {
-                    return InstallResult(true, meta.packageName, "安装成功：${meta.packageName}")
-                }
-            }
-
-            // 6. 超时兜底：若广播给了失败信息则带回，否则提示无法确认
-            val bcast = lastBroadcast.get()
-            return if (bcast != null && !bcast.ok) {
-                bcast.copy(packageName = meta.packageName)
+                InstallResult(false, null, "文件为空或读取失败")
             } else {
-                InstallResult(
-                    false,
-                    meta.packageName,
-                    "安装等待超时，请在系统应用管理中确认 ${meta.packageName} 的实际状态"
-                )
+                installLocal(context, cached)
             }
         } finally {
             runCatching { cached.delete() }
+        }
+    }
+
+    /**
+     * 直接安装本地缓存文件（如应用商店下载后的 APK）。
+     * 安装完成后文件由调用方自行清理，本方法不删除。
+     */
+    suspend fun installFile(context: Context, file: File): InstallResult {
+        if (!file.exists() || file.length() <= 0L) {
+            return InstallResult(false, null, "文件为空或不存在")
+        }
+        return installLocal(context, file)
+    }
+
+    private suspend fun installLocal(context: Context, apkFile: File): InstallResult {
+        // 2. 解析 APK（任意扩展名都可选，这里做真实校验）
+        val meta = parseApk(context, apkFile)
+        if (meta == null) {
+            return InstallResult(false, null, "所选文件不是有效的 APK")
+        }
+
+        // 3. 安装前快照
+        val before = installedState(context, meta.packageName)
+
+        // 4. 提交安装
+        val lastBroadcast = AtomicReference<InstallResult?>()
+        install(context, apkFile) { result ->
+            lastBroadcast.set(result)
+        }
+
+        // 5. 轮询目标包状态（辅助判定）+ 系统广播（快速失败反馈）
+        val timeoutMs = 120_000L
+        val start = System.currentTimeMillis()
+        while (System.currentTimeMillis() - start < timeoutMs) {
+            delay(700)
+
+            val bcast = lastBroadcast.get()
+            if (bcast != null) {
+                when {
+                    bcast.ok -> {
+                        // 广播明确成功，立即结束
+                        return InstallResult(
+                            true,
+                            meta.packageName,
+                            "安装成功：${meta.packageName}"
+                        )
+                    }
+
+                    !isUserConfirmPending(bcast.message) -> {
+                        // 广播为硬性失败（如签名/兼容性错误）
+                        return bcast.copy(packageName = meta.packageName)
+                    }
+                    // else: 系统要求人工确认，继续轮询等待最终结果
+                }
+            }
+
+            // 轮询：目标包出现或版本/安装时间发生变化
+            val now = installedState(context, meta.packageName)
+            val changed = if (now == null) {
+                false
+            } else if (before == null) {
+                true
+            } else {
+                now.versionCode != before.versionCode ||
+                    now.firstInstallTime != before.firstInstallTime ||
+                    now.lastUpdateTime != before.lastUpdateTime
+            }
+            if (changed) {
+                return InstallResult(true, meta.packageName, "安装成功：${meta.packageName}")
+            }
+        }
+
+        // 6. 超时兜底：若广播给了失败信息则带回，否则提示无法确认
+        val bcast = lastBroadcast.get()
+        return if (bcast != null && !bcast.ok) {
+            bcast.copy(packageName = meta.packageName)
+        } else {
+            InstallResult(
+                false,
+                meta.packageName,
+                "安装等待超时，请在系统应用管理中确认 ${meta.packageName} 的实际状态"
+            )
         }
     }
 

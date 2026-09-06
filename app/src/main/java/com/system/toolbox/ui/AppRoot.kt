@@ -31,12 +31,14 @@ import com.system.toolbox.ui.screens.AboutScreen
 import com.system.toolbox.ui.screens.AppsScreen
 import com.system.toolbox.ui.screens.FunctionsScreen
 import com.system.toolbox.ui.screens.InstallScreen
+import com.system.toolbox.ui.screens.StoreScreen
 import kotlinx.coroutines.launch
 
 private object Routes {
     const val Functions = "functions"
     const val Install = "install"
     const val Freeze = "freeze"
+    const val Store = "store"
     const val About = "about"
 }
 
@@ -98,7 +100,8 @@ fun AppRoot() {
             composable(Routes.Functions) {
                 FunctionsScreen(
                     onOpenInstall = { navController.navigate(Routes.Install) },
-                    onOpenFreeze = { navController.navigate(Routes.Freeze) }
+                    onOpenFreeze = { navController.navigate(Routes.Freeze) },
+                    onOpenStore = { navController.navigate(Routes.Store) }
                 )
             }
             composable(Routes.Install) {
@@ -109,6 +112,12 @@ fun AppRoot() {
             }
             composable(Routes.Freeze) {
                 AppsScreen(
+                    onBack = { navController.popBackStack() },
+                    toast = toast
+                )
+            }
+            composable(Routes.Store) {
+                StoreScreen(
                     onBack = { navController.popBackStack() },
                     toast = toast
                 )

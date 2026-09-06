@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -32,6 +33,7 @@ import com.system.toolbox.ui.screens.AppsScreen
 import com.system.toolbox.ui.screens.BrowserScreen
 import com.system.toolbox.ui.screens.FunctionsScreen
 import com.system.toolbox.ui.screens.InstallScreen
+import com.system.toolbox.ui.screens.MoreScreen
 import com.system.toolbox.ui.screens.ShellScreen
 import com.system.toolbox.ui.screens.StoreScreen
 import kotlinx.coroutines.launch
@@ -43,11 +45,13 @@ private object Routes {
     const val Store = "store"
     const val Shell = "shell"
     const val Browser = "browser"
+    const val More = "more"
     const val About = "about"
 }
 
 private enum class Destination(val route: String, val label: String, val icon: ImageVector) {
     Functions(Routes.Functions, "功能", Icons.Filled.Apps),
+    More(Routes.More, "更多", Icons.Filled.MoreHoriz),
     About(Routes.About, "关于", Icons.Filled.Info),
 }
 
@@ -136,6 +140,12 @@ fun AppRoot() {
             }
             composable(Routes.Browser) {
                 BrowserScreen(
+                    onBack = { navController.popBackStack() },
+                    toast = toast
+                )
+            }
+            composable(Routes.More) {
+                MoreScreen(
                     onBack = { navController.popBackStack() },
                     toast = toast
                 )

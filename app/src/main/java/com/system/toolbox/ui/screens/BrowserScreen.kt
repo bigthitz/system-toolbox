@@ -399,13 +399,15 @@ fun BrowserScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                     }
                 },
                 update = { v ->
-                    val wv = v as? WebView ?: return@update
-                    webViewHolder.value = wv
-                    if (!hasBooted) {
-                        hasBooted = true
-                        wv.loadUrl(currentUrl.ifBlank { HOME_URL })
+                    val wv = v as? WebView
+                    if (wv != null) {
+                        webViewHolder.value = wv
+                        if (!hasBooted) {
+                            hasBooted = true
+                            wv.loadUrl(currentUrl.ifBlank { HOME_URL })
+                        }
+                        refreshState()
                     }
-                    refreshState()
                 }
             )
         }

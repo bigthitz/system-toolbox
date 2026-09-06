@@ -6,7 +6,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.snapshotStateList
+import androidx.compose.runtime.snapshotStateList
 import com.system.toolbox.core.StoreApi.StoreApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

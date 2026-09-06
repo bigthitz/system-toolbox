@@ -61,6 +61,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import java.net.URLDecoder
 import java.net.URLEncoder
 
 private const val HOME_URL = "https://www.baidu.com"
@@ -102,7 +103,7 @@ fun BrowserScreen(onBack: () -> Unit, toast: (String) -> Unit) {
             toast("当前系统不支持下载")
             return
         }
-        val guess = DownloadManager.Request.guessFileName(p.url, p.contentDisposition, p.mimeType)
+        val guess = guessFileName(p.url, p.contentDisposition, p.mimeType)
         val req = DownloadManager.Request(Uri.parse(p.url))
             .setTitle(guess)
             .setDescription(p.url)
@@ -136,7 +137,7 @@ fun BrowserScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                 // 拒绝也仍然下载，只是保存位置退回应用目录
                 val dm = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
                 if (dm != null) {
-                    val guess = DownloadManager.Request.guessFileName(p.url, p.contentDisposition, p.mimeType)
+                    val guess = guessFileName(p.url, p.contentDisposition, p.mimeType)
                     val req = DownloadManager.Request(Uri.parse(p.url))
                         .setTitle(guess)
                         .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
@@ -377,7 +378,7 @@ fun BrowserScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                         }
 
                         // 页面触发下载（APK/文件/图片…）
-                        downloadListener = DownloadListener { url, userAgent, contentDisposition, mime, _ ->
+                        setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mime, _ ->
                             requestDownload(
                                 PendingDownload(
                                     url = url,
@@ -386,7 +387,7 @@ fun BrowserScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                                     mimeType = mime ?: ""
                                 )
                             )
-                        }
+                        })
                     }
                 },
                 update = { wv ->
@@ -405,3 +406,37 @@ fun BrowserScreen(onBack: () -> Unit, toast: (String) -> Unit) {
 private fun Context.checkSelfPermissionCompat(): Boolean =
     ContextCompat.checkSelfPermission(this, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
         PackageManager.PERMISSION_GRANTED
+
+/** 根据 Content-Disposition / URL / MIME 推断下载保存的文件名。 */
+private fun guessFileName(url: String, contentDisposition: String, mimeType: String): String {
+    if (contentDisposition.isNotBlank()) {
+        val m = Regex("filename\\*?=(?:UTF-8'')?\"?([^\";]+)\"?", RegexOption.IGNORE_CASE)
+            .find(contentDisposition)
+        if (m != null) {
+            val name = m.groupValues[1].trim().trim('"')
+            if (name.isNotEmpty()) {
+                return try {
+                    URLDecoder.decode(name, "UTF-8")
+                } catch (_: Exception) {
+                    name
+                }
+            }
+        }
+    }
+    val seg = Uri.parse(url).lastPathSegment
+    if (!seg.isNullOrBlank()) {
+        val name = try {
+            URLDecoder.decode(seg, "UTF-8")
+        } catch (_: Exception) {
+            seg
+        }
+        if (name.isNotBlank() && name.contains('.')) return name
+    }
+    return when {
+        mimeType.contains("vnd.android.package-archive") -> "download.apk"
+        mimeType.startsWith("image/") -> "download.jpg"
+        mimeType.startsWith("video/") -> "download.mp4"
+        mimeType.startsWith("audio/") -> "download.mp3"
+        else -> "download.bin"
+    }
+}

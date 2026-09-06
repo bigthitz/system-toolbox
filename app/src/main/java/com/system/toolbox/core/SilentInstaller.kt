@@ -52,7 +52,7 @@ object SilentInstaller {
                 val sender = PendingIntent.getBroadcast(
                     context,
                     createdId,
-                    Intent(context, InstallResultReceiver::class),
+                    Intent(context, InstallResultReceiver::class.java),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 ).intentSender
 

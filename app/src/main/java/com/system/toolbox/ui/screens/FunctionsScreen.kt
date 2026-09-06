@@ -17,8 +17,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AcUnit
-import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,7 +38,9 @@ import androidx.compose.ui.unit.dp
 fun FunctionsScreen(
     onOpenInstall: () -> Unit,
     onOpenFreeze: () -> Unit,
-    onOpenStore: () -> Unit
+    onOpenStore: () -> Unit,
+    onOpenShell: () -> Unit,
+    onOpenBrowser: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -77,6 +81,24 @@ fun FunctionsScreen(
             container = MaterialTheme.colorScheme.secondaryContainer,
             iconTint = MaterialTheme.colorScheme.onSecondaryContainer,
             onClick = onOpenStore
+        )
+        Spacer(Modifier.height(14.dp))
+
+        FeatureEntry(
+            title = "Shell 命令行",
+            icon = Icons.Filled.Terminal,
+            container = MaterialTheme.colorScheme.errorContainer,
+            iconTint = MaterialTheme.colorScheme.onErrorContainer,
+            onClick = onOpenShell
+        )
+        Spacer(Modifier.height(14.dp))
+
+        FeatureEntry(
+            title = "内置浏览器",
+            icon = Icons.Filled.Public,
+            container = MaterialTheme.colorScheme.surfaceVariant,
+            iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+            onClick = onOpenBrowser
         )
 
         Spacer(Modifier.height(32.dp))

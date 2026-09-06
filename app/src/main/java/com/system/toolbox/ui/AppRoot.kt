@@ -29,8 +29,10 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.system.toolbox.ui.screens.AboutScreen
 import com.system.toolbox.ui.screens.AppsScreen
+import com.system.toolbox.ui.screens.BrowserScreen
 import com.system.toolbox.ui.screens.FunctionsScreen
 import com.system.toolbox.ui.screens.InstallScreen
+import com.system.toolbox.ui.screens.ShellScreen
 import com.system.toolbox.ui.screens.StoreScreen
 import kotlinx.coroutines.launch
 
@@ -39,6 +41,8 @@ private object Routes {
     const val Install = "install"
     const val Freeze = "freeze"
     const val Store = "store"
+    const val Shell = "shell"
+    const val Browser = "browser"
     const val About = "about"
 }
 
@@ -101,7 +105,9 @@ fun AppRoot() {
                 FunctionsScreen(
                     onOpenInstall = { navController.navigate(Routes.Install) },
                     onOpenFreeze = { navController.navigate(Routes.Freeze) },
-                    onOpenStore = { navController.navigate(Routes.Store) }
+                    onOpenStore = { navController.navigate(Routes.Store) },
+                    onOpenShell = { navController.navigate(Routes.Shell) },
+                    onOpenBrowser = { navController.navigate(Routes.Browser) }
                 )
             }
             composable(Routes.Install) {
@@ -118,6 +124,18 @@ fun AppRoot() {
             }
             composable(Routes.Store) {
                 StoreScreen(
+                    onBack = { navController.popBackStack() },
+                    toast = toast
+                )
+            }
+            composable(Routes.Shell) {
+                ShellScreen(
+                    onBack = { navController.popBackStack() },
+                    toast = toast
+                )
+            }
+            composable(Routes.Browser) {
+                BrowserScreen(
                     onBack = { navController.popBackStack() },
                     toast = toast
                 )

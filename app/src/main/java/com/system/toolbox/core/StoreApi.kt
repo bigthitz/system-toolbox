@@ -4,7 +4,9 @@ import android.content.Context
 import android.util.LruCache
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import org.jsoup.Jsoup
@@ -13,6 +15,7 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import kotlin.coroutines.coroutineContext
 
 /**
  * 豌豆荚应用商店数据层。
@@ -137,14 +140,20 @@ object StoreApi {
                 val buffer = ByteArray(8192)
                 try {
                     while (true) {
+                        // 被取消时（后台任务停止/用户点取消）尽快中断，避免继续写磁盘
+                        coroutineContext.ensureActive()
                         val read = input.read(buffer)
                         if (read < 0) break
+                        coroutineContext.ensureActive()
                         out.write(buffer, 0, read)
                         downloaded += read
                         onProgress(downloaded, if (total > 0) total else -1L)
                     }
                 } finally {
-                    input.close()
+                    try {
+                        input.close()
+                    } catch (_: Exception) {
+                    }
                 }
             }
             if (file.length() <= 0L) {
@@ -153,8 +162,22 @@ object StoreApi {
             } else {
                 file
             }
+        } catch (e: CancellationException) {
+            try {
+                conn?.disconnect()
+            } catch (_: Exception) {
+            }
+            try {
+                // 清理下载到一半的残留文件
+                File(File(context.cacheDir, "store"), "${sanitize(appId)}.apk").delete()
+            } catch (_: Exception) {
+            }
+            throw e
         } catch (_: Exception) {
-            conn?.disconnect()
+            try {
+                conn?.disconnect()
+            } catch (_: Exception) {
+            }
             null
         }
     }

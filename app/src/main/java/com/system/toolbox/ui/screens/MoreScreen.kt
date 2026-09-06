@@ -43,24 +43,27 @@ import org.json.JSONObject
 private const val MORE_URL = "https://eebbk.bbroot.com/new.html"
 
 /**
- * 注入网页的桥接助手（onPageFinished 时执行一次）：
- *  - SystemToolbox.execAsync(cmd)  → 返回 Promise，resolve(输出)
- *  - SystemToolbox.run(cmd)        → 同步返回输出（适合短命令）
+ * 注入网页的桥接助手（onPageFinished 时执行一次，幂等）：
+ *  - 原生回调固定走 window.__shellCb(id, result)（页面可自定义；未定义时由 helper 兜底）
+ *  - SystemToolbox.execAsync(cmd) → Promise，resolve(输出)
  */
 private const val BRIDGE_HELPER_JS = "(function(){" +
     "if(window.SystemToolbox&&!window.SystemToolbox.__ready){" +
     "window.SystemToolbox.__ready=true;" +
-    "var pending={};" +
+    "if(!window.__shellCb){" +
+    "window.__shellCbPending={};" +
+    "window.__shellCb=function(id,result){" +
+    "var r=window.__shellCbPending[id];" +
+    "if(r){delete window.__shellCbPending[id];r(result);}" +
+    "};}" +
+    "if(!window.SystemToolbox.execAsync){" +
     "window.SystemToolbox.execAsync=function(cmd){" +
     "return new Promise(function(resolve){" +
     "var id='cb'+(new Date().getTime())+Math.floor(Math.random()*100000);" +
-    "pending[id]=resolve;" +
+    "window.__shellCbPending[id]=resolve;" +
     "window.SystemToolbox.exec(cmd,id);" +
     "});};" +
-    "window.SystemToolbox.__cb=function(id,result){" +
-    "var r=pending[id];" +
-    "if(r){delete pending[id];r(result);}" +
-    "};" +
+    "}" +
     "}})();"
 
 /** 提供给网页的 Shell 桥（WebView 注入名为 SystemToolbox） */
@@ -78,7 +81,7 @@ class ShellBridge(private val webView: WebView) {
             webView.post {
                 try {
                     webView.evaluateJavascript(
-                        "window.SystemToolbox && window.SystemToolbox.__cb(" +
+                        "window.__shellCb && window.__shellCb(" +
                             JSONObject.quote(callbackId) + "," + JSONObject.quote(result) + ");",
                         null
                     )

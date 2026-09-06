@@ -132,7 +132,7 @@ object SilentInstaller {
 
             // 4. 提交安装
             val lastBroadcast = AtomicReference<InstallResult?>()
-            install(context, Uri.fromFile(cached)) { result ->
+            install(context, cached) { result ->
                 lastBroadcast.set(result)
             }
 

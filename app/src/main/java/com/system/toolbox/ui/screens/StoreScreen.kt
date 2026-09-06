@@ -498,7 +498,7 @@ private fun TaskPage(
             verticalAlignment = Alignment.CenterVertically
         ) {
             val active = tasks.count { it.isActive }
-            val done = tasks.count { it.isDone }
+            val done = tasks.count { it.phase == TaskPhase.DONE }
             Text(
                 if (tasks.isEmpty()) "暂无下载任务"
                 else "${tasks.size} 个任务 · $active 进行中 · $done 已完成",

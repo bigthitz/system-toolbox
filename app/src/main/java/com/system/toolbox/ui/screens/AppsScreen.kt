@@ -18,11 +18,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -52,6 +55,16 @@ import com.system.toolbox.core.OpResult
 import com.system.toolbox.core.SystemPm
 import kotlinx.coroutines.launch
 
+/** 一键冻结预置包名（学习机内置服务类应用） */
+private val BATCH_PKGS = listOf(
+    "com.eebbk.bbkallowlisting",
+    "com.eebbk.greensecuritymidware",
+    "com.eebbk.ovumserver",
+    "com.eebbk.bfc.app.bfcbehavior",
+    "com.eebbk.parentsupport",
+    "com.eebbk.padsecuritymanager"
+)
+
 @Composable
 fun AppsScreen(
     onBack: () -> Unit,
@@ -64,6 +77,12 @@ fun AppsScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var busyPkg by remember { mutableStateOf<String?>(null) }
     var confirmTarget by remember { mutableStateOf<AppEntry?>(null) }
+
+    // 一键冻结
+    var showBatchDialog by remember { mutableStateOf(false) }
+    var batchSelection by remember { mutableStateOf(emptySet<String>()) }
+    var batchRunning by remember { mutableStateOf(false) }
+    var batchProgress by remember { mutableStateOf("") }
 
     suspend fun load() {
         try {
@@ -119,6 +138,44 @@ fun AppsScreen(
         }
     }
 
+    fun openBatchDialog() {
+        val installedSet = (apps ?: emptyList()).map { it.packageName }.toSet()
+        // 默认全选已安装的预置应用
+        batchSelection = BATCH_PKGS.filter { it in installedSet }.toSet()
+        showBatchDialog = true
+    }
+
+    fun runBatchFreeze() {
+        val targets = batchSelection.toList()
+        if (targets.isEmpty() || batchRunning) return
+        batchRunning = true
+        scope.launch {
+            var ok = 0
+            var fail = 0
+            val succeeded = mutableSetOf<String>()
+            targets.forEachIndexed { index, pkg ->
+                batchProgress = "正在冻结 (${index + 1}/${targets.size})：$pkg"
+                val res = SystemPm.setFrozen(context, pkg, true)
+                if (res.ok) {
+                    ok++
+                    succeeded += pkg
+                } else {
+                    fail++
+                }
+            }
+            apps = (apps ?: emptyList()).map { app ->
+                if (app.packageName in succeeded) app.copy(isFrozen = true) else app
+            }
+            batchRunning = false
+            batchProgress = ""
+            showBatchDialog = false
+            toast(
+                if (fail == 0) "一键冻结完成：成功 $ok 个"
+                else "一键冻结完成：成功 $ok 个，失败 $fail 个"
+            )
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -160,17 +217,31 @@ fun AppsScreen(
         }
         Spacer(Modifier.height(8.dp))
 
-        if (all.isNotEmpty()) {
-            Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer,
-                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                shape = RoundedCornerShape(999.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (all.isNotEmpty()) {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+                    shape = RoundedCornerShape(999.dp)
+                ) {
+                    Text(
+                        text = "共 ${all.size} 个应用 · 已冻结 $frozenCount 个",
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                    )
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            Button(
+                onClick = { openBatchDialog() },
+                enabled = apps != null && !batchRunning
             ) {
-                Text(
-                    text = "共 ${all.size} 个应用 · 已冻结 $frozenCount 个",
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                )
+                Icon(Icons.Filled.AcUnit, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("一键冻结")
             }
         }
 
@@ -241,6 +312,91 @@ fun AppsScreen(
             },
             dismissButton = {
                 TextButton(onClick = { confirmTarget = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showBatchDialog) {
+        val installedSet = all.map { it.packageName }.toSet()
+        AlertDialog(
+            onDismissRequest = { if (!batchRunning) showBatchDialog = false },
+            icon = { Icon(Icons.Filled.AcUnit, contentDescription = null) },
+            title = { Text("一键冻结") },
+            text = {
+                Column {
+                    Text(
+                        "默认勾选已安装的学习机内置应用，确认后将逐个冻结：",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    BATCH_PKGS.forEach { pkg ->
+                        val installed = pkg in installedSet
+                        val frozenAlready =
+                            all.firstOrNull { it.packageName == pkg }?.isFrozen == true
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = pkg in batchSelection,
+                                onCheckedChange = { checked ->
+                                    batchSelection = if (checked) {
+                                        batchSelection + pkg
+                                    } else {
+                                        batchSelection - pkg
+                                    }
+                                },
+                                enabled = installed && !batchRunning
+                            )
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    text = pkg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    text = when {
+                                        !installed -> "未安装"
+                                        frozenAlready -> "已冻结"
+                                        else -> "已安装"
+                                    },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                    if (batchRunning) {
+                        Spacer(Modifier.height(10.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                batchProgress,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !batchRunning && batchSelection.isNotEmpty(),
+                    onClick = { runBatchFreeze() }
+                ) {
+                    Text("冻结所选", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !batchRunning,
+                    onClick = { showBatchDialog = false }
+                ) {
                     Text("取消")
                 }
             }

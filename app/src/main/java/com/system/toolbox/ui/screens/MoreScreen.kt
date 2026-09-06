@@ -40,7 +40,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import org.json.JSONObject
 
-private const val MORE_URL = "https://eebbk.bbroot.com/new.html"
+/** 「更多」页加载的远程地址；模块内可见，供 AppRoot 探测可达性后决定是否显示入口 */
+internal const val MORE_URL = "https://eebbk.bbroot.com/new.html"
 
 /**
  * 注入网页的桥接助手（onPageFinished 时执行一次，幂等）：

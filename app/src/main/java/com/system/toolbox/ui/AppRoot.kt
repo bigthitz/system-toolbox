@@ -18,9 +18,12 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -33,10 +36,15 @@ import com.system.toolbox.ui.screens.AppsScreen
 import com.system.toolbox.ui.screens.BrowserScreen
 import com.system.toolbox.ui.screens.FunctionsScreen
 import com.system.toolbox.ui.screens.InstallScreen
+import com.system.toolbox.ui.screens.MORE_URL
 import com.system.toolbox.ui.screens.MoreScreen
 import com.system.toolbox.ui.screens.ShellScreen
 import com.system.toolbox.ui.screens.StoreScreen
+import java.net.HttpURLConnection
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private object Routes {
     const val Functions = "functions"
@@ -53,6 +61,33 @@ private enum class Destination(val route: String, val label: String, val icon: I
     Functions(Routes.Functions, "功能", Icons.Filled.Apps),
     More(Routes.More, "更多", Icons.Filled.MoreHoriz),
     About(Routes.About, "关于", Icons.Filled.Info),
+}
+
+/** 请求指定方法获取 HTTP 状态码；网络异常返回 null */
+private fun httpStatus(url: String, method: String): Int? = try {
+    val conn = URL(url).openConnection() as HttpURLConnection
+    try {
+        conn.connectTimeout = 5000
+        conn.readTimeout = 5000
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "SystemToolbox/1.0")
+        conn.requestMethod = method
+        conn.responseCode
+    } finally {
+        conn.disconnect()
+    }
+} catch (_: Exception) {
+    null
+}
+
+/** 「更多」远程页面是否可获取（HEAD 探测；服务器不支持 HEAD 时退回 GET 验证） */
+private suspend fun isMorePageReachable(): Boolean = withContext(Dispatchers.IO) {
+    when (val code = httpStatus(MORE_URL, "HEAD")) {
+        null -> false
+        in 200..399 -> true
+        405 -> httpStatus(MORE_URL, "GET")?.let { it in 200..399 } ?: false
+        else -> false
+    }
 }
 
 @Composable
@@ -77,14 +112,26 @@ fun AppRoot() {
         }
     }
 
-    val tabRoutes = Destination.entries.map { it.route }
+    // 「更多」页为远程页面：探测获取不到时自动隐藏该入口
+    var moreReachable by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        moreReachable = isMorePageReachable()
+        if (!moreReachable && navController.currentDestination?.route == Routes.More) {
+            navController.popBackStack()
+        }
+    }
+    val destinations = remember(moreReachable) {
+        if (moreReachable) Destination.entries
+        else Destination.entries.filterNot { it == Destination.More }
+    }
+    val tabRoutes = destinations.map { it.route }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
             if (currentRoute in tabRoutes) {
                 NavigationBar {
-                    Destination.entries.forEach { destination ->
+                    destinations.forEach { destination ->
                         NavigationBarItem(
                             selected = currentRoute == destination.route,
                             onClick = { goTab(destination.route) },

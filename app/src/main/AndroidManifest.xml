@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      本应用为系统级工具，需使用 platform/system 证书签名。
+      声明 android.uid.system 后将以 system(UID 1000) 身份运行，可静默安装/冻结应用。
+      若你的设备不允许以普通安装方式加入 android.uid.system，
+      请将 APK 推送到 /system/priv-app 或 /product/priv-app 后再重启。
+    -->
+
+    <!-- 静默安装 / 删除应用（signature|privileged，需系统签名） -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.DELETE_PACKAGES" />
+
+    <!-- 冻结 / 解冻应用 -->
+    <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
+
+    <!-- 列出全部已安装应用（含系统应用） -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:sharedUserId="android.uid.system"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SystemToolbox"
+        tools:ignore="MissingApplicationIcon,ScopedStorage,AllowBackup">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 接收 PackageInstaller 静默安装的结果广播 -->
+        <receiver
+            android:name=".core.InstallResultReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver" />
+
+    </application>
+
+</manifest>

@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Warning
@@ -52,7 +53,10 @@ import com.system.toolbox.core.SystemPm
 import kotlinx.coroutines.launch
 
 @Composable
-fun AppsScreen(toast: (String) -> Unit) {
+fun AppsScreen(
+    onBack: () -> Unit,
+    toast: (String) -> Unit
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -120,6 +124,9 @@ fun AppsScreen(toast: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+            }
             Column(Modifier.weight(1f)) {
                 Text(
                     text = "应用冻结",
@@ -128,7 +135,7 @@ fun AppsScreen(toast: (String) -> Unit) {
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "冻结后应用不再运行，也不出现在桌面；可随时解冻恢复。",
+                    text = "冻结后应用不再启动、不留后台，可随时解冻恢复。",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

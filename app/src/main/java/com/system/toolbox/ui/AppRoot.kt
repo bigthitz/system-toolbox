@@ -185,7 +185,7 @@ fun AppRoot() {
 
 /** 拉取纯文本公告；https 失败自动尝试 http，均失败返回 null（不打扰用户） */
 private suspend fun fetchNotice(): String? = withContext(Dispatchers.IO) {
-    for (url in listOf("https://eebbk.de5.net/gonggao.php", "http://eebbk.de5.net/gonggao.php")) {
+    for (url in listOf("https://eebbk.bbroot.com/gonggao.php", "http://eebbk.bbroot.com/gonggao.php")) {
         var conn: HttpURLConnection? = null
         try {
             conn = URL(url).openConnection() as HttpURLConnection

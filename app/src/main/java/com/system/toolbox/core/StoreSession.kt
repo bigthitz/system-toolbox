@@ -4,9 +4,9 @@ import android.content.Context
 import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotStateList
 import com.system.toolbox.core.StoreApi.StoreApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -74,7 +74,7 @@ object StoreSession {
     var selectedTab by mutableIntStateOf(0)
 
     // ---- 任务列表（进程级）----
-    val tasks = snapshotStateList<StoreTask>()
+    val tasks = mutableStateListOf<StoreTask>()
 
     private var appContext: Context? = null
     private var nextId = 1L

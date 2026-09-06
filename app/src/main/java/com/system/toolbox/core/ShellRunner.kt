@@ -1,9 +1,9 @@
 package com.system.toolbox.core
 
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotStateList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,7 +22,7 @@ object ShellRunner {
 
     private const val MAX_LINES = 1500
 
-    val lines = snapshotStateList<ShellLine>()
+    val lines = mutableStateListOf<ShellLine>()
 
     var running by mutableStateOf(false)
         private set

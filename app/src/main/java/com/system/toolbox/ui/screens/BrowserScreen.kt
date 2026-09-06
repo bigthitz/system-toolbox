@@ -398,7 +398,8 @@ fun BrowserScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                         }
                     }
                 },
-                update = { wv ->
+                update = { v ->
+                    val wv = v as? WebView ?: return@update
                     webViewHolder.value = wv
                     if (!hasBooted) {
                         hasBooted = true

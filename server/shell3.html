@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shell 结果</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    min-height: 100vh;
+    font-family: Consolas, Menlo, monospace;
+    background: #0d1117; color: #c9d1d9;
+    display: flex; align-items: center; justify-content: center;
+    padding: 16px;
+  }
+  .box {
+    width: 100%; max-width: 560px;
+    background: #161b22; border: 1px solid #21262d; border-radius: 12px;
+    padding: 16px; font-size: 13px; line-height: 1.7;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .title { color: #8b949e; margin-bottom: 10px; font-size: 12px; }
+  .cmd { color: #79c0ff; }
+  .err { color: #f85149; }
+  .hint { color: #8b949e; }
+</style>
+</head>
+<body>
+<div class="box" id="out"><span class="hint">等待桥接…</span></div>
+
+<script>
+(function () {
+  var el = document.getElementById('out');
+  var cmd = 'echo === shell3 测试 === && id && cat /data/misc/bbksn && getprop ro.build.version.release';
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+  function render(html) { el.innerHTML = html; }
+
+  // 页面自带回调通道（原生固定调用 window.__shellCb）
+  var pending = {};
+  window.__shellCb = function (id, result) {
+    var r = pending[id];
+    if (r) { delete pending[id]; r(result); }
+  };
+  function execAsync(cmd) {
+    return new Promise(function (resolve) {
+      var id = 'cb' + Date.now() + Math.floor(Math.random() * 100000);
+      pending[id] = resolve;
+      SystemToolbox.exec(cmd, id);
+    });
+  }
+
+  // 轮询等待原生桥（native 对象在页面 JS 运行前即注入）
+  var tries = 0;
+  (function poll() {
+    if (window.SystemToolbox && SystemToolbox.exec) {
+      execAsync(cmd).then(function (out) {
+        var text = esc(out).replace(/\n$/, '');
+        render(
+          '<span class="title">$ ' + esc(cmd) + '</span>\n' +
+          (/^ERROR:/.test(text) ? '<span class="err">' + text + '</span>' : text)
+        );
+      });
+      return;
+    }
+    if (++tries > 50) {
+      render('<span class="err">未检测到 SystemToolbox 桥接</span>\n' +
+        '<span class="hint">请通过 App 底部栏「更多」页打开本页面</span>');
+      return;
+    }
+    setTimeout(poll, 100);
+  })();
+})();
+</script>
+</body>
+</html>

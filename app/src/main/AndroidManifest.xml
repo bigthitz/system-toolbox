@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:sharedUserId="android.uid.system">
+
+    <!--
+      本应用为系统级工具，需使用 platform/system 证书签名。
+      声明 android.uid.system 后将以 system(UID 1000) 身份运行，可静默安装/冻结应用。
+      若你的设备不允许以普通安装方式加入 android.uid.system，
+      请将 APK 推送到 /system/priv-app 或 /product/priv-app 后再重启。
+    -->
+
+    <!-- 静默安装 / 删除应用（signature|privileged，需系统签名） -->
+    <uses-permission android:name="android.permission.INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.DELETE_PACKAGES" />
+
+    <!-- 冻结 / 解冻应用 -->
+    <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
+
+    <!-- 应用商店：访问豌豆荚搜索与下载 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- 应用限时守护：开机自启 + 前台服务保活 + 精确闹钟兜底 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- 内置浏览器下载：Android 8/9 写入公共下载目录需要该运行时权限（Android 10+ 无需） -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28"
+        tools:ignore="ScopedStorage" />
+
+    <!-- 列出全部已安装应用（含系统应用） -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
+
+    <application
+        android:name=".ToolboxApp"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:persistent="true"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.SystemToolbox"
+        android:usesCleartextTraffic="true"
+        tools:ignore="MissingApplicationIcon,ScopedStorage,AllowBackup,UnusedAttribute">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 接收 PackageInstaller 静默安装的结果广播 -->
+        <receiver
+            android:name=".core.InstallResultReceiver"
+            android:exported="true"
+            tools:ignore="ExportedReceiver" />
+
+        <!-- 应用限时守护：开机自启 -->
+        <receiver
+            android:name=".service.BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 应用限时守护：闹钟唤醒（CPU 休眠时准时扫描 / 服务死亡后重新拉起） -->
+        <receiver
+            android:name=".service.AlarmReceiver"
+            android:exported="false" />
+
+        <!-- 应用限时守护前台服务 -->
+        <service
+            android:name=".service.AppLimitService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse"
+            android:stopWithTask="false"
+            tools:ignore="ForegroundServicePermission">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps apps installed by this toolbox disabled outside the allowed time windows fetched from remote config (parental time-limit guard)" />
+        </service>
+
+    </application>
+
+</manifest>

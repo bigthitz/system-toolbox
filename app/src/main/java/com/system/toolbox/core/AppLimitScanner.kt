@@ -1,6 +1,7 @@
 package com.system.toolbox.core
 
 import android.content.Context
+import java.util.Calendar
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -86,7 +87,7 @@ object AppLimitScanner {
                     restrictedNow = false
                     val remaining = restore(appContext, suspended.filter { it in installed })
                     ManagedApps.setSuspendedByService(appContext, remaining)
-                    summary = "允许时段（${config.windows.joinToString(" / ")}），应用可用"
+                    summary = "允许时段（${todayWindows(config)}），应用可用"
                 }
 
                 // 限制时段：暂停全部受管应用
@@ -116,7 +117,7 @@ object AppLimitScanner {
                     val restoreFailed = restore(appContext, toRestore)
                     ManagedApps.setSuspendedByService(appContext, newSuspended + restoreFailed)
                     suspendedCount = newSuspended.size
-                    summary = "限制时段（可用：${config.windows.joinToString(" / ")}），已暂停 $suspendedCount 个应用"
+                    summary = "限制时段（可用：${todayWindows(config)}），已暂停 $suspendedCount 个应用"
                 }
             }
 
@@ -129,4 +130,8 @@ object AppLimitScanner {
         val failed = SystemPm.setPackagesSuspendedCompat(context, packages, false)
         return packages.filterTo(HashSet()) { it in failed }
     }
+
+    /** 当前日期适用的时段文本（周末且单独配置时为周末时段）。 */
+    private fun todayWindows(config: AppLimit.Config): String =
+        config.windowsFor(Calendar.getInstance()).joinToString(" / ")
 }

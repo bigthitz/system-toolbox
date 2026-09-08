@@ -10,9 +10,12 @@
  *   POST /app_limit.php?action=save → 保存配置（管理页调用，需口令）
  *
  * 配置存储于同目录 app_limit_config.json，格式：
- *   {"enabled":true,"windows":[{"start":"07:00","end":"20:00"}]}
+ *   {"enabled":true,
+ *    "windows":[{"start":"07:00","end":"20:00"}],                // 周一~周五
+ *    "weekendWindows":[{"start":"09:00","end":"21:00"}]}        // 周六/周日（可选）
  * - windows 为允许使用的时段，支持多个，"20:00-06:00" 表示跨午夜；
- * - enabled=false 或 windows 为空 → 不限制。
+ * - weekendWindows 缺失 → 周末沿用 windows；存在但为空 → 周末不限制；
+ * - enabled=false 或所有时段为空 → 不限制。
  */
 
 // ---------------- 配置 ----------------
@@ -20,40 +23,36 @@ $ACCESS_KEY  = 'eebbk-toolbox-2026';   // 管理口令（与激活门户一致�
 $CONFIG_FILE = __DIR__ . '/app_limit_config.json';
 // --------------------------------------
 
+function parseWindowsField($arr) {
+    $windows = array();
+    if (!is_array($arr)) return $windows;
+    foreach ($arr as $w) {
+        if (is_array($w) && isset($w['start'], $w['end'])) {
+            $windows[] = array('start' => (string)$w['start'], 'end' => (string)$w['end']);
+        }
+    }
+    return $windows;
+}
+
 function loadConfig($file) {
-    $default = array('enabled' => false, 'windows' => array());
+    $default = array('enabled' => false, 'windows' => array(), 'weekendWindows' => null);
     if (!is_file($file)) return $default;
     $json = json_decode((string)file_get_contents($file), true);
     if (!is_array($json)) return $default;
-    $windows = array();
-    if (isset($json['windows']) && is_array($json['windows'])) {
-        foreach ($json['windows'] as $w) {
-            if (is_array($w) && isset($w['start'], $w['end'])) {
-                $windows[] = array('start' => (string)$w['start'], 'end' => (string)$w['end']);
-            }
-        }
+    $weekend = null;
+    if (array_key_exists('weekendWindows', $json)) {
+        $weekend = parseWindowsField($json['weekendWindows']);
     }
     return array(
-        'enabled' => isset($json['enabled']) ? (bool)$json['enabled'] : false,
-        'windows' => $windows,
+        'enabled'        => isset($json['enabled']) ? (bool)$json['enabled'] : false,
+        'windows'        => parseWindowsField(isset($json['windows']) ? $json['windows'] : null),
+        'weekendWindows' => $weekend,
     );
 }
 
-// ---- 保存配置 ----
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['action']) && $_GET['action'] === 'save') {
-    header('Content-Type: application/json; charset=utf-8');
-
-    $key = isset($_POST['key']) ? (string)$_POST['key'] : '';
-    if ($ACCESS_KEY !== '' && !hash_equals($ACCESS_KEY, $key)) {
-        http_response_code(403);
-        echo json_encode(array('ok' => false, 'message' => '口令错误'));
-        exit;
-    }
-
-    $enabled = isset($_POST['enabled']) && $_POST['enabled'] === '1';
-    $lines   = isset($_POST['windows']) ? (string)$_POST['windows'] : '';
+/** 将管理页多行文本解析为 windows 数组；格式非法直接终止并返回错误。 */
+function parseWindowLines($lines) {
     $windows = array();
-
     foreach (preg_split('/\r\n|\r|\n/', trim($lines)) as $line) {
         $line = trim($line);
         if ($line === '') continue;
@@ -74,10 +73,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['action']) && $_GET['ac
             'end'   => sprintf('%02d:%02d', $h2, $i2),
         );
     }
+    return $windows;
+}
+
+// ---- 保存配置 ----
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_GET['action']) && $_GET['action'] === 'save') {
+    header('Content-Type: application/json; charset=utf-8');
+
+    $key = isset($_POST['key']) ? (string)$_POST['key'] : '';
+    if ($ACCESS_KEY !== '' && !hash_equals($ACCESS_KEY, $key)) {
+        http_response_code(403);
+        echo json_encode(array('ok' => false, 'message' => '口令错误'));
+        exit;
+    }
+
+    $enabled        = isset($_POST['enabled']) && $_POST['enabled'] === '1';
+    $weekendEnabled = isset($_POST['weekendEnabled']) && $_POST['weekendEnabled'] === '1';
+    $windows        = parseWindowLines(isset($_POST['windows']) ? (string)$_POST['windows'] : '');
+
+    $config = array('enabled' => $enabled, 'windows' => $windows);
+    if ($weekendEnabled) {
+        // 单独设置周末：保存 weekendWindows（可为空 = 周末不限制）
+        $config['weekendWindows'] = parseWindowLines(
+            isset($_POST['weekendWindows']) ? (string)$_POST['weekendWindows'] : ''
+        );
+    }
+    // 未单独设置周末：不写 weekendWindows 字段 → 周末沿用平日时段
 
     $ok = @file_put_contents(
         $CONFIG_FILE,
-        json_encode(array('enabled' => $enabled, 'windows' => $windows), JSON_UNESCAPED_SLASHES)
+        json_encode($config, JSON_UNESCAPED_SLASHES)
     );
 
     if ($ok === false) {
@@ -103,6 +128,13 @@ $config = loadConfig($CONFIG_FILE);
 $linesText = '';
 foreach ($config['windows'] as $w) {
     $linesText .= $w['start'] . '-' . $w['end'] . "\n";
+}
+$weekendOn = $config['weekendWindows'] !== null;
+$weekendText = '';
+if ($weekendOn) {
+    foreach ($config['weekendWindows'] as $w) {
+        $weekendText .= $w['start'] . '-' . $w['end'] . "\n";
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -176,8 +208,21 @@ foreach ($config['windows'] as $w) {
     </div>
   </div>
 
-  <label>允许使用的时段（每行一个，格式 HH:mm-HH:mm，跨午夜如 20:00-06:00）</label>
+  <label>周一至周五允许使用的时段（每行一个，格式 HH:mm-HH:mm，跨午夜如 20:00-06:00）</label>
   <textarea id="windows" placeholder="07:00-20:00&#10;21:30-22:30"><?php echo htmlspecialchars($linesText); ?></textarea>
+
+  <div class="row">
+    <label style="margin:0">周六、周日单独设置时段</label>
+    <div class="switch">
+      <input type="checkbox" id="weekendEnabled" <?php echo $weekendOn ? 'checked' : ''; ?>>
+      <span class="slider" onclick="document.getElementById('weekendEnabled').click()"></span>
+    </div>
+  </div>
+
+  <div id="weekendBlock">
+    <label>周六、周日允许使用的时段（留空 = 周末不限制）</label>
+    <textarea id="weekendWindows" placeholder="09:00-21:00"><?php echo htmlspecialchars($weekendText); ?></textarea>
+  </div>
 
   <label>管理口令</label>
   <input id="key" type="password" autocomplete="off">
@@ -187,13 +232,23 @@ foreach ($config['windows'] as $w) {
   <div id="msg" class="msg"></div>
 
   <div class="tips">
-    · 时段之外的时间，设备将自动禁用工具箱安装的应用；<br>
+    · 时段之外的时间，设备将自动暂停工具箱安装的应用；<br>
+    · 未开启周末单独设置时，周末沿用平日时段；<br>
     · 时段为空或关闭开关 = 不限制；<br>
     · 保存后最长 24 小时内生效（设备端也可在「应用限时」页手动刷新）。
   </div>
 </div>
 
 <script>
+function syncWeekendBlock() {
+  var on = document.getElementById('weekendEnabled').checked;
+  var block = document.getElementById('weekendBlock');
+  block.style.opacity = on ? '1' : '.4';
+  block.style.pointerEvents = on ? 'auto' : 'none';
+}
+document.getElementById('weekendEnabled').addEventListener('change', syncWeekendBlock);
+syncWeekendBlock();
+
 function showMsg(text, ok) {
   var m = document.getElementById('msg');
   m.textContent = text;
@@ -210,6 +265,8 @@ function save() {
   var fd = new FormData();
   fd.append('enabled', document.getElementById('enabled').checked ? '1' : '0');
   fd.append('windows', document.getElementById('windows').value);
+  fd.append('weekendEnabled', document.getElementById('weekendEnabled').checked ? '1' : '0');
+  fd.append('weekendWindows', document.getElementById('weekendWindows').value);
   fd.append('key', key);
 
   fetch('?action=save', { method: 'POST', body: fd })

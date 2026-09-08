@@ -16,11 +16,13 @@ import java.util.Calendar
  * 云端 JSON 格式：
  * {
  *   "enabled": true,
- *   "windows": [ {"start":"07:00","end":"20:00"}, ... ]   // 允许使用的时段，可多个
+ *   "windows": [ {"start":"07:00","end":"20:00"}, ... ],        // 周一~周五允许使用的时段
+ *   "weekendWindows": [ {"start":"09:00","end":"21:00"}, ... ]  // 周六/周日允许使用的时段
  * }
  *
  * 规则：
- * - enabled=false 或 windows 为空 → 不限制（解禁全部受管应用）；
+ * - enabled=false 或所有时段为空 → 不限制（解禁全部受管应用）；
+ * - weekendWindows 缺失 → 周末沿用 windows；存在但为空 → 周末不限制；
  * - start > end 表示跨午夜时段（如 20:00-06:00）；
  * - 缓存每 24 小时向云端更新一次，更新失败回退原始缓存；
  * - 从未成功拉取且无缓存 → 视为不限制（避免锁死设备）。
@@ -57,15 +59,32 @@ object AppLimit {
         override fun toString(): String = "${hm(startMinutes)}-${hm(endMinutes)}"
     }
 
-    /** 云端下发的时间配置 */
-    data class Config(val enabled: Boolean, val windows: List<TimeWindow>) {
+    /**
+     * 云端下发的时间配置。
+     * @param weekendWindows 周六/周日单独时段；null=周末沿用 windows；空=周末不限制
+     */
+    data class Config(
+        val enabled: Boolean,
+        val windows: List<TimeWindow>,
+        val weekendWindows: List<TimeWindow>? = null
+    ) {
 
-        /** 是否不限制（开关关闭或未配置时段） */
-        val unrestricted: Boolean get() = !enabled || windows.isEmpty()
+        /** 是否完全不限制（开关关闭或平日与周末时段均为空） */
+        val unrestricted: Boolean
+            get() = !enabled || (windows.isEmpty() && weekendWindows.isNullOrEmpty())
+
+        /** 指定日期适用的时段：周末且已单独配置周末时段时用 weekendWindows，否则用 windows。 */
+        fun windowsFor(cal: Calendar): List<TimeWindow> {
+            val day = cal.get(Calendar.DAY_OF_WEEK)
+            val weekend = day == Calendar.SATURDAY || day == Calendar.SUNDAY
+            return if (weekend && weekendWindows != null) weekendWindows else windows
+        }
 
         fun allowedAt(cal: Calendar): Boolean {
+            val wins = windowsFor(cal)
+            if (wins.isEmpty()) return true // 当日未配置时段 = 当日不限制
             val minute = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
-            return windows.any { it.contains(minute) }
+            return wins.any { it.contains(minute) }
         }
 
         fun allowedNow(): Boolean = allowedAt(Calendar.getInstance())
@@ -171,6 +190,17 @@ object AppLimit {
             val config = JSONObject()
                 .put("enabled", cached.config.enabled)
                 .put("windows", windows)
+            cached.config.weekendWindows?.let { weekend ->
+                val weekendArr = JSONArray()
+                for (w in weekend) {
+                    weekendArr.put(
+                        JSONObject()
+                            .put("start", hm(w.startMinutes))
+                            .put("end", hm(w.endMinutes))
+                    )
+                }
+                config.put("weekendWindows", weekendArr)
+            }
             val json = JSONObject()
                 .put("fetchedAt", cached.fetchedAt)
                 .put("config", config)
@@ -213,19 +243,25 @@ object AppLimit {
     fun parse(body: String): Config? = try {
         val json = JSONObject(body.trim())
         val enabled = json.optBoolean("enabled", true)
-        val arr = json.optJSONArray("windows")
-        val wins = ArrayList<TimeWindow>()
-        if (arr != null) {
-            for (i in 0 until arr.length()) {
-                val o = arr.optJSONObject(i) ?: continue
-                val s = parseHm(o.optString("start"))
-                val e = parseHm(o.optString("end"))
-                if (s != null && e != null && s != e) wins += TimeWindow(s, e)
-            }
-        }
-        Config(enabled, wins)
+        val wins = parseWindows(json.optJSONArray("windows"))
+        // weekendWindows 缺失或为 JSON null → null（周末沿用 windows）；空数组 → 空列表（周末不限制）
+        val weekendArr = json.optJSONArray("weekendWindows")
+        val weekendWins = if (weekendArr == null) null else parseWindows(weekendArr)
+        Config(enabled, wins, weekendWins)
     } catch (_: Exception) {
         null
+    }
+
+    private fun parseWindows(arr: JSONArray?): List<TimeWindow> {
+        val wins = ArrayList<TimeWindow>()
+        if (arr == null) return wins
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val s = parseHm(o.optString("start"))
+            val e = parseHm(o.optString("end"))
+            if (s != null && e != null && s != e) wins += TimeWindow(s, e)
+        }
+        return wins
     }
 
     /** "HH:mm" → 当日分钟数；非法返回 null。 */

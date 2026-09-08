@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
-import android.os.PersistableBundle
 import android.os.Process
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -80,9 +79,12 @@ object SystemPm {
      * 与 disable-user 冻结不同，应用仍显示在桌面且可被系统设置一键恢复。
      *
      * 实现策略（依赖 platform/system 签名 + SUSPEND_APPS 系统权限）：
-     * 1. 优先反射调用 @SystemApi 的 5 参重载，可自定义暂停时系统对话框文案；
-     * 2. 反射失败回退 public 2 参重载（API 28+）；
-     * 3. API < 28 不支持，直接失败。
+     * setPackagesSuspended 的全部重载均为 @SystemApi（hide），public SDK 的 android.jar
+     * 中不存在，只能通过反射调用，运行时按参数最多的重载自动适配：
+     * 1. 5 参（API 30+）：setPackagesSuspended(String[], boolean, PersistableBundle, PersistableBundle, String)，
+     *    可自定义暂停时系统对话框文案；
+     * 2. 4 参（API 28/29）：setPackagesSuspended(String[], boolean, PersistableBundle, PersistableBundle)；
+     * 3. 2 参：setPackagesSuspended(String[], boolean)。
      *
      * @return 传入包名中未能成功切换状态的包名集合（空集合=全部成功）
      */
@@ -96,33 +98,43 @@ object SystemPm {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             return@withContext packages.toSet() // Android 9 以下不支持 Suspended 状态
         }
-        val pm = context.packageManager
-        val names = packages.toTypedArray()
+        val failed = invokeSetPackagesSuspended(
+            context.packageManager,
+            packages.toTypedArray(),
+            suspended,
+            dialogMessage
+        )
+        // 方法不存在或被系统拒绝（无 SUSPEND_APPS 授权），全部视为失败
+        failed?.toSet() ?: packages.toSet()
+    }
 
-        // 1. @SystemApi 5 参重载：setPackagesSuspended(String[], boolean, PersistableBundle, PersistableBundle, String)
-        val failed: Array<String>? = try {
-            val method = PackageManager::class.java.getMethod(
-                "setPackagesSuspended",
-                Array<String>::class.java,
-                java.lang.Boolean.TYPE,
-                PersistableBundle::class.java,
-                PersistableBundle::class.java,
-                String::class.java
-            )
-            method.isAccessible = true
-            @Suppress("UNCHECKED_CAST")
-            method.invoke(pm, names, suspended, null, null, dialogMessage) as? Array<String>
-        } catch (_: Throwable) {
-            null
+    /**
+     * 反射调用 setPackagesSuspended，自动选择运行时存在的、参数最多的重载。
+     * @return 成功调用时返回「未能切换状态的包名数组」（可能为空）；方法不存在或调用失败返回 null
+     */
+    private fun invokeSetPackagesSuspended(
+        pm: PackageManager,
+        names: Array<String>,
+        suspended: Boolean,
+        dialogMessage: String?
+    ): Array<String>? = try {
+        val target = PackageManager::class.java.methods
+            .filter {
+                it.name == "setPackagesSuspended" &&
+                    it.parameterTypes.firstOrNull() == Array<String>::class.java
+            }
+            .maxByOrNull { it.parameterTypes.size }
+            ?: return null
+        target.isAccessible = true
+        val args = when (target.parameterTypes.size) {
+            5 -> arrayOf(names, suspended, null, null, dialogMessage)
+            4 -> arrayOf(names, suspended, null, null)
+            else -> arrayOf(names, suspended)
         }
-
-        // 2. public 2 参重载兜底
-        val failedNames = failed ?: try {
-            pm.setPackagesSuspended(names, suspended)
-        } catch (_: Exception) {
-            return@withContext packages.toSet() // 无权限或系统拒绝，全部视为失败
-        }
-        failedNames.toSet()
+        @Suppress("UNCHECKED_CAST")
+        target.invoke(pm, *args) as? Array<String>
+    } catch (_: Throwable) {
+        null
     }
 
     /** 暂停 / 解冻应用。优先使用系统 API，异常时回退到 pm 命令。 */

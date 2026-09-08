@@ -78,63 +78,36 @@ object SystemPm {
      * 语义：应用被暂停后图标置灰、点击弹出系统对话框、后台活动（如音乐）同步暂停；
      * 与 disable-user 冻结不同，应用仍显示在桌面且可被系统设置一键恢复。
      *
-     * 实现策略（依赖 platform/system 签名 + SUSPEND_APPS 系统权限）：
-     * setPackagesSuspended 的全部重载均为 @SystemApi（hide），public SDK 的 android.jar
-     * 中不存在，只能通过反射调用，运行时按参数最多的重载自动适配：
-     * 1. 5 参（API 30+）：setPackagesSuspended(String[], boolean, PersistableBundle, PersistableBundle, String)，
-     *    可自定义暂停时系统对话框文案；
-     * 2. 4 参（API 28/29）：setPackagesSuspended(String[], boolean, PersistableBundle, PersistableBundle)；
-     * 3. 2 参：setPackagesSuspended(String[], boolean)。
+     * 实现方式：直接以 shell 执行 pm 命令（本应用运行于 system UID，子进程继承系统权限）：
+     * - 暂停：pm suspend --user 0 <package>
+     * - 恢复：pm unsuspend --user 0 <package>
+     * 注：pm 命令不支持自定义暂停对话框文案，系统将展示默认提示。
      *
      * @return 传入包名中未能成功切换状态的包名集合（空集合=全部成功）
      */
     suspend fun setPackagesSuspendedCompat(
         context: Context,
         packages: Collection<String>,
-        suspended: Boolean,
-        dialogMessage: String? = null
+        suspended: Boolean
     ): Set<String> = withContext(Dispatchers.IO) {
         if (packages.isEmpty()) return@withContext emptySet()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
-            return@withContext packages.toSet() // Android 9 以下不支持 Suspended 状态
+            return@withContext packages.toSet() // Android 9 以下不支持 suspend
         }
-        val failed = invokeSetPackagesSuspended(
-            context.packageManager,
-            packages.toTypedArray(),
-            suspended,
-            dialogMessage
-        )
-        // 方法不存在或被系统拒绝（无 SUSPEND_APPS 授权），全部视为失败
-        failed?.toSet() ?: packages.toSet()
-    }
-
-    /**
-     * 反射调用 setPackagesSuspended，自动选择运行时存在的、参数最多的重载。
-     * @return 成功调用时返回「未能切换状态的包名数组」（可能为空）；方法不存在或调用失败返回 null
-     */
-    private fun invokeSetPackagesSuspended(
-        pm: PackageManager,
-        names: Array<String>,
-        suspended: Boolean,
-        dialogMessage: String?
-    ): Array<String>? = try {
-        val target = PackageManager::class.java.methods
-            .filter {
-                it.name == "setPackagesSuspended" &&
-                    it.parameterTypes.firstOrNull() == Array<String>::class.java
+        val failed = HashSet<String>()
+        for (pkg in packages) {
+            val cmd = if (suspended) {
+                arrayOf("pm", "suspend", "--user", "0", pkg)
+            } else {
+                arrayOf("pm", "unsuspend", "--user", "0", pkg)
             }
-            .maxByOrNull { it.parameterTypes.size }
-            ?: return null
-        target.isAccessible = true
-        val args = when (target.parameterTypes.size) {
-            5 -> arrayOf(names, suspended, null, null, dialogMessage)
-            4 -> arrayOf(names, suspended, null, null)
-            else -> arrayOf(names, suspended)
+            val r = runShell(*cmd)
+            // pm 命令部分失败场景退出码仍为 0，需同时检查输出中的错误关键字
+            if (!r.ok || r.output.contains("Failure", true) || r.output.contains("Error", true)) {
+                failed += pkg
+            }
         }
-        @Suppress("UNCHECKED_CAST")
-        target.invoke(pm, *args) as? Array<String>
-    } catch (_: Throwable) {
-        null
+        failed
     }
 
     /** 暂停 / 解冻应用。优先使用系统 API，异常时回退到 pm 命令。 */

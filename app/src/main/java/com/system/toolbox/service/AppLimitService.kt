@@ -28,13 +28,13 @@ import kotlinx.coroutines.launch
 /**
  * 应用限时守护服务（前台服务）：
  * - 开机自启（BootReceiver / persistent 进程启动时拉起）；
- * - 每 2 分钟扫描一轮受管应用，按云端时间配置自动禁用/解禁；
+ * - 每 10 秒扫描一轮受管应用（按安装来源自动识别），按云端时间配置自动暂停/恢复；
  * - 保活三重保障：START_STICKY + stopWithTask=false + 精确闹钟兜底重启。
  */
 class AppLimitService : Service() {
 
     companion object {
-        const val SCAN_INTERVAL_MS = 2 * 60 * 1000L
+        const val SCAN_INTERVAL_MS = 10 * 1000L
         private const val CHANNEL_ID = "app_limit_guard"
         private const val NOTIFICATION_ID = 1001
         private const val ALARM_REQUEST_CODE = 2001
@@ -72,8 +72,8 @@ class AppLimitService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         promoteForeground()
-        // 距上次扫描超过 1 分钟（闹钟/开机等拉起）时立即补扫一轮
-        if (SystemClock.elapsedRealtime() - lastScanAt > 60_000L) {
+        // 距上次扫描超过半周期（闹钟/开机等拉起）时立即补扫一轮
+        if (SystemClock.elapsedRealtime() - lastScanAt > SCAN_INTERVAL_MS / 2) {
             scope.launch { runScan() }
         }
         // 兜底：若循环链因异常中断则重建

@@ -1,25 +1,28 @@
 package com.system.toolbox.core
 
 import android.content.Context
-import android.content.pm.PackageManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 限时扫描器：刷新云端配置 → 判断当前时间 → 禁用/解禁受管应用。
+ * 限时扫描器：刷新云端配置 → 判断当前时间 → 暂停/恢复受管应用。
  *
- * 由守护服务每 2 分钟调用一次，也供 UI 手动触发：
- * - 限制时段（不在任何允许时段内）：禁用全部受管应用的入口（pm disable-user 语义）；
- * - 允许时段 / 限时关闭 / 无配置：解禁「服务冻结集合」中的应用。
+ * 由守护服务每 10 秒调用一次，也供 UI 手动触发：
+ * - 受管列表每轮自动通过安装来源（getInstallSourceInfo）识别为本工具箱安装的应用，禁止手动增删；
+ * - 限制时段（不在任何允许时段内）：调用 setPackagesSuspended 暂停全部受管应用；
+ * - 允许时段 / 限时关闭 / 无配置：恢复「被本服务暂停」的应用。
  */
 object AppLimitScanner {
+
+    /** 暂停应用时系统对话框展示的文案 */
+    private const val SUSPEND_DIALOG_MESSAGE = "应用限时中，当前时段暂不可使用"
 
     /** 一轮扫描的结果摘要（通知与 UI 展示用）。 */
     data class Outcome(
         val cached: AppLimit.Cached?,  // 生效配置（null=从未成功拉取）
         val restrictedNow: Boolean,    // 当前是否处于限制时段
         val managedCount: Int,         // 受管应用数
-        val disabledCount: Int,        // 当前被服务禁用的应用数
+        val disabledCount: Int,        // 当前被服务暂停的应用数
         val summary: String
     )
 
@@ -30,11 +33,11 @@ object AppLimitScanner {
     suspend fun scan(context: Context, forceRefresh: Boolean = false): Outcome =
         withContext(Dispatchers.IO) {
             val appContext = context.applicationContext
-            val pm = appContext.packageManager
 
             // 1. 已安装包集合：据此清理卸载残留
             val installed = try {
-                pm.getInstalledPackages(0).map { it.packageName }.toSet()
+                appContext.packageManager.getInstalledPackages(0)
+                    .map { it.packageName }.toSet()
             } catch (_: Exception) {
                 emptySet<String>()
             }
@@ -51,84 +54,82 @@ object AppLimitScanner {
             }
             val config = cached?.config
 
-            val managed = ManagedApps.packages(appContext).filter { it in installed }
-            val frozen = ManagedApps.frozenByService(appContext)
+            // 3. 受管应用：按安装来源自动识别（本工具箱安装）
+            val managed = ManagedApps.packagesByInstallSource(appContext)
+                .filter { it in installed }
+            val suspended = ManagedApps.suspendedByService(appContext)
 
-            var disabledCount = 0
+            var suspendedCount = 0
             var summary: String
             var restrictedNow: Boolean
 
             when {
-                // 从未成功拉取配置：不做任何限制，并解除历史禁用
+                // 从未成功拉取配置：不做任何限制，并解除历史暂停
                 config == null -> {
                     restrictedNow = false
-                    for (pkg in frozen) {
-                        if (pkg in installed) SystemPm.setFrozen(appContext, pkg, false)
-                    }
-                    ManagedApps.setFrozenByService(appContext, emptySet())
+                    val remaining = restore(appContext, suspended.filter { it in installed })
+                    ManagedApps.setSuspendedByService(appContext, remaining)
                     summary = "尚未获取云端配置，暂不限制"
                 }
 
-                // 云端关闭了限时或未配置时段：全部解禁
+                // 云端关闭了限时或未配置时段：全部恢复
                 config.unrestricted -> {
                     restrictedNow = false
-                    var restored = 0
-                    for (pkg in frozen) {
-                        if (pkg in installed && SystemPm.setFrozen(appContext, pkg, false).ok) {
-                            restored++
-                        }
-                    }
-                    ManagedApps.setFrozenByService(appContext, emptySet())
+                    val remaining = restore(appContext, suspended.filter { it in installed })
+                    ManagedApps.setSuspendedByService(appContext, remaining)
                     summary = if (config.enabled) {
                         "未配置可用时段，应用不受限"
                     } else {
-                        "限时已停用，已解禁 $restored 个应用"
+                        "限时已停用，已恢复 ${suspended.size - remaining.size} 个应用"
                     }
                 }
 
-                // 允许时段：解禁服务冻结的应用
+                // 允许时段：恢复被服务暂停的应用
                 config.allowedNow() -> {
                     restrictedNow = false
-                    for (pkg in frozen) {
-                        if (pkg in installed) SystemPm.setFrozen(appContext, pkg, false)
-                    }
-                    ManagedApps.setFrozenByService(appContext, emptySet())
+                    val remaining = restore(appContext, suspended.filter { it in installed })
+                    ManagedApps.setSuspendedByService(appContext, remaining)
                     summary = "允许时段（${config.windows.joinToString(" / ")}），应用可用"
                 }
 
-                // 限制时段：禁用全部受管应用
+                // 限制时段：暂停全部受管应用
                 else -> {
                     restrictedNow = true
-                    val newFrozen = HashSet<String>()
+                    val newSuspended = HashSet<String>()
                     for (pkg in managed) {
-                        if (isDisabled(pm, pkg)) {
-                            // 已处于禁用状态（本服务或此前禁用），纳入管理
-                            newFrozen += pkg
-                            continue
-                        }
-                        if (SystemPm.setFrozen(appContext, pkg, true).ok) {
-                            newFrozen += pkg
+                        when {
+                            // 已被本服务暂停：维持现状
+                            pkg in suspended -> newSuspended += pkg
+
+                            // 已被其他组件暂停（如数字健康）：不纳入管理，避免误恢复
+                            ManagedApps.isSuspended(appContext, pkg) -> continue
+
+                            else -> {
+                                val failed = SystemPm.setPackagesSuspendedCompat(
+                                    appContext, listOf(pkg), true, SUSPEND_DIALOG_MESSAGE
+                                )
+                                if (pkg !in failed) newSuspended += pkg
+                            }
                         }
                     }
-                    // 曾被服务禁用、但已移出受管范围的应用 → 解除禁用
-                    for (pkg in frozen) {
-                        if (pkg !in newFrozen && pkg in installed && pkg !in managed) {
-                            SystemPm.setFrozen(appContext, pkg, false)
-                        }
+                    // 曾被服务暂停、但已不满足受管条件（卸载来源变更等）的应用 → 恢复
+                    val toRestore = suspended.filter {
+                        it !in newSuspended && it in installed && it !in managed
                     }
-                    ManagedApps.setFrozenByService(appContext, newFrozen)
-                    disabledCount = newFrozen.size
-                    summary = "限制时段（可用：${config.windows.joinToString(" / ")}），已禁用 $disabledCount 个应用"
+                    val restoreFailed = restore(appContext, toRestore)
+                    ManagedApps.setSuspendedByService(appContext, newSuspended + restoreFailed)
+                    suspendedCount = newSuspended.size
+                    summary = "限制时段（可用：${config.windows.joinToString(" / ")}），已暂停 $suspendedCount 个应用"
                 }
             }
 
-            Outcome(cached, restrictedNow, managed.size, disabledCount, summary)
+            Outcome(cached, restrictedNow, managed.size, suspendedCount, summary)
         }
 
-    private fun isDisabled(pm: PackageManager, pkg: String): Boolean = try {
-        pm.getApplicationEnabledSetting(pkg) ==
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
-    } catch (_: Exception) {
-        false
+    /** 恢复一批被本服务暂停的应用。返回仍处于暂停状态（恢复失败）的包名集合。 */
+    private suspend fun restore(context: Context, packages: List<String>): Set<String> {
+        if (packages.isEmpty()) return emptySet()
+        val failed = SystemPm.setPackagesSuspendedCompat(context, packages, false)
+        return packages.filterTo(HashSet()) { it in failed }
     }
 }

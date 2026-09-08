@@ -1,9 +1,7 @@
 package com.system.toolbox.ui.screens
 
 import android.content.Context
-import android.content.pm.PackageManager
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,35 +9,26 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -55,11 +44,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.system.toolbox.core.AppEntry
 import com.system.toolbox.core.AppLimit
 import com.system.toolbox.core.AppLimitScanner
 import com.system.toolbox.core.ManagedApps
-import com.system.toolbox.core.SystemPm
 import com.system.toolbox.service.AppLimitService
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -70,25 +57,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** 受管应用条目（列表展示用） */
-private data class ManagedEntry(val pkg: String, val label: String, val frozen: Boolean)
+private data class ManagedEntry(val pkg: String, val label: String, val suspended: Boolean)
 
 private suspend fun loadManagedEntries(context: Context): List<ManagedEntry> =
     withContext(Dispatchers.IO) {
         val pm = context.packageManager
-        ManagedApps.packages(context)
+        ManagedApps.packagesByInstallSource(context)
             .map { pkg ->
                 val label = try {
                     pm.getApplicationInfo(pkg, 0).loadLabel(pm).toString()
                 } catch (_: Exception) {
                     pkg
                 }
-                val frozen = try {
-                    pm.getApplicationEnabledSetting(pkg) ==
-                        PackageManager.COMPONENT_ENABLED_STATE_DISABLED_USER
-                } catch (_: Exception) {
-                    false
-                }
-                ManagedEntry(pkg, label, frozen)
+                ManagedEntry(pkg, label, ManagedApps.isSuspended(context, pkg))
             }
             .sortedBy { it.label.lowercase(Locale.getDefault()) }
     }
@@ -99,7 +80,7 @@ private fun formatTime(ts: Long): String =
 /**
  * 应用限时管理页：
  * - 展示守护服务运行状态、云端时间配置与当前生效状态；
- * - 查看/增删受管应用（通过工具箱安装的应用自动纳入）；
+ * - 受管应用列表由安装来源自动识别（通过本工具箱安装的应用），不可手动增删；
  * - 手动刷新配置、立即执行一轮扫描。
  */
 @Composable
@@ -112,7 +93,6 @@ fun AppLimitScreen(onBack: () -> Unit, toast: (String) -> Unit) {
     var outcome by remember { mutableStateOf(AppLimitScanner.Outcome(null, false, 0, 0, "")) }
     var entries by remember { mutableStateOf<List<ManagedEntry>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
-    var showAdd by remember { mutableStateOf(false) }
 
     // 状态自动刷新（每 2 秒）
     LaunchedEffect(Unit) {
@@ -150,16 +130,6 @@ fun AppLimitScreen(onBack: () -> Unit, toast: (String) -> Unit) {
             entries = loadManagedEntries(context)
             toast(result.summary)
             busy = false
-        }
-    }
-
-    fun removeEntry(pkg: String) {
-        scope.launch {
-            ManagedApps.remove(context, pkg)
-            entries = loadManagedEntries(context)
-            // 立即扫一轮：解除该应用的限时禁用
-            AppLimitScanner.scan(context)
-            toast("已移出管理")
         }
     }
 
@@ -226,7 +196,7 @@ fun AppLimitScreen(onBack: () -> Unit, toast: (String) -> Unit) {
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "每 2 分钟自动扫描一次；服务开机自启并保持后台存活",
+                    "每 10 秒自动扫描一次；服务开机自启并保持后台存活",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -270,34 +240,27 @@ fun AppLimitScreen(onBack: () -> Unit, toast: (String) -> Unit) {
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(horizontal = 20.dp, vertical = 18.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "受管应用（${entries.size}）",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TextButton(onClick = { showAdd = true }) {
-                        Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("添加")
-                    }
-                }
                 Text(
-                    "通过本工具箱安装的应用自动纳入管理；限制时段内将禁用其入口",
+                    "受管应用（${entries.size}）",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text(
+                    "通过本工具箱安装的应用按安装来源自动纳入管理，不可手动增删；限制时段内将暂停这些应用",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(Modifier.height(10.dp))
                 if (entries.isEmpty()) {
                     Text(
-                        "暂无受管应用。安装新应用或在商店安装后自动加入，也可点击右上角「添加」手动纳入。",
+                        "暂无受管应用。通过本工具箱安装（含应用商店）的应用会自动加入。",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
                     entries.forEach { entry ->
-                        ManagedRow(entry, onRemove = { removeEntry(entry.pkg) })
+                        ManagedRow(entry)
                         Spacer(Modifier.height(4.dp))
                     }
                 }
@@ -305,21 +268,6 @@ fun AppLimitScreen(onBack: () -> Unit, toast: (String) -> Unit) {
         }
 
         Spacer(Modifier.height(28.dp))
-    }
-
-    if (showAdd) {
-        AddAppsDialog(
-            onDismiss = { showAdd = false },
-            onConfirm = { selected ->
-                scope.launch {
-                    ManagedApps.addAll(context, selected)
-                    entries = loadManagedEntries(context)
-                    AppLimitScanner.scan(context)
-                    toast("已添加 ${selected.size} 个应用")
-                }
-                showAdd = false
-            }
-        )
     }
 }
 
@@ -368,7 +316,7 @@ private fun StateCard(
             MaterialTheme.colorScheme.onErrorContainer,
             Icons.Filled.Block,
             "限制中",
-            config?.windows?.joinToString(" / ")?.let { "可用时段为 $it，时段外应用入口已禁用" } ?: ""
+            config?.windows?.joinToString(" / ")?.let { "可用时段为 $it，时段外受管应用已暂停" } ?: ""
         )
     }
     Surface(
@@ -429,7 +377,7 @@ private fun InfoRow(label: String, value: String) {
 }
 
 @Composable
-private fun ManagedRow(entry: ManagedEntry, onRemove: () -> Unit) {
+private fun ManagedRow(entry: ManagedEntry) {
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
@@ -447,10 +395,10 @@ private fun ManagedRow(entry: ManagedEntry, onRemove: () -> Unit) {
                         fontWeight = FontWeight.Medium,
                         maxLines = 1
                     )
-                    if (entry.frozen) {
+                    if (entry.suspended) {
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "已禁用",
+                            "已暂停",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -463,104 +411,7 @@ private fun ManagedRow(entry: ManagedEntry, onRemove: () -> Unit) {
                     maxLines = 1
                 )
             }
-            IconButton(onClick = onRemove, modifier = Modifier.size(32.dp)) {
-                Icon(
-                    Icons.Filled.Close,
-                    contentDescription = "移除",
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
         }
     }
 }
 
-/** 从已安装的第三方应用中挑选加入受管列表 */
-@Composable
-private fun AddAppsDialog(
-    onDismiss: () -> Unit,
-    onConfirm: (Set<String>) -> Unit
-) {
-    val context = LocalContext.current
-    var candidates by remember { mutableStateOf<List<AppEntry>?>(null) }
-    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
-
-    LaunchedEffect(Unit) {
-        val managed = ManagedApps.packages(context)
-        candidates = SystemPm.loadApps(context)
-            .filter { !it.isSystem && it.packageName !in managed }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加受管应用") },
-        text = {
-            val list = candidates
-            if (list == null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            } else if (list.isEmpty()) {
-                Text("没有可添加的应用（非系统应用均已纳入管理）")
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 360.dp)
-                ) {
-                    items(list, key = { it.packageName }) { app ->
-                        val checked = app.packageName in selected
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable {
-                                    selected = if (checked) selected - app.packageName
-                                    else selected + app.packageName
-                                }
-                                .padding(horizontal = 4.dp, vertical = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Checkbox(
-                                checked = checked,
-                                onCheckedChange = {
-                                    selected = if (checked) selected - app.packageName
-                                    else selected + app.packageName
-                                }
-                            )
-                            Column {
-                                Text(
-                                    app.label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    app.packageName,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onConfirm(selected) },
-                enabled = selected.isNotEmpty()
-            ) {
-                Text(if (selected.isEmpty()) "添加" else "添加（${selected.size}）")
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        }
-    )
-}

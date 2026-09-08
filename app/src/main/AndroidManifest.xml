@@ -17,6 +17,9 @@
     <!-- 冻结 / 解冻应用 -->
     <uses-permission android:name="android.permission.CHANGE_COMPONENT_ENABLED_STATE" />
 
+    <!-- 暂停 / 恢复应用（setPackagesSuspended，signature|system 级权限，需系统签名） -->
+    <uses-permission android:name="android.permission.SUSPEND_APPS" />
+
     <!-- 应用商店：访问豌豆荚搜索与下载 -->
     <uses-permission android:name="android.permission.INTERNET" />
 
@@ -89,7 +92,7 @@
             tools:ignore="ForegroundServicePermission">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Keeps apps installed by this toolbox disabled outside the allowed time windows fetched from remote config (parental time-limit guard)" />
+                android:value="Keeps apps installed by this toolbox suspended outside the allowed time windows fetched from remote config (parental time-limit guard)" />
         </service>
 
     </application>

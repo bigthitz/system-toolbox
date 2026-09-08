@@ -11,7 +11,8 @@ import kotlinx.coroutines.withContext
  * 由守护服务每 10 秒调用一次，也供 UI 手动触发：
  * - 受管列表每轮自动通过安装来源（getInstallSourceInfo）识别为本工具箱安装的应用，禁止手动增删；
  * - 限制时段（不在任何允许时段内）：通过 pm suspend 命令暂停全部受管应用；
- * - 允许时段 / 限时关闭 / 无配置：恢复「被本服务暂停」的应用。
+ * - 允许时段 / 限时关闭 / 无配置：通过 pm unsuspend 恢复，
+ *   并自愈「受管但未被记录的暂停状态」，保证限制一定能解除。
  */
 object AppLimitScanner {
 
@@ -65,7 +66,7 @@ object AppLimitScanner {
                 // 从未成功拉取配置：不做任何限制，并解除历史暂停
                 config == null -> {
                     restrictedNow = false
-                    val remaining = restore(appContext, suspended.filter { it in installed })
+                    val remaining = restoreAll(appContext, suspended, managed, installed)
                     ManagedApps.setSuspendedByService(appContext, remaining)
                     summary = "尚未获取云端配置，暂不限制"
                 }
@@ -73,19 +74,19 @@ object AppLimitScanner {
                 // 云端关闭了限时或未配置时段：全部恢复
                 config.unrestricted -> {
                     restrictedNow = false
-                    val remaining = restore(appContext, suspended.filter { it in installed })
+                    val remaining = restoreAll(appContext, suspended, managed, installed)
                     ManagedApps.setSuspendedByService(appContext, remaining)
                     summary = if (config.enabled) {
                         "未配置可用时段，应用不受限"
                     } else {
-                        "限时已停用，已恢复 ${suspended.size - remaining.size} 个应用"
+                        "限时已停用，应用已恢复"
                     }
                 }
 
-                // 允许时段：恢复被服务暂停的应用
+                // 允许时段：恢复被暂停的受管应用
                 config.allowedNow() -> {
                     restrictedNow = false
-                    val remaining = restore(appContext, suspended.filter { it in installed })
+                    val remaining = restoreAll(appContext, suspended, managed, installed)
                     ManagedApps.setSuspendedByService(appContext, remaining)
                     summary = "允许时段（${todayWindows(config)}），应用可用"
                 }
@@ -95,20 +96,15 @@ object AppLimitScanner {
                     restrictedNow = true
                     val newSuspended = HashSet<String>()
                     for (pkg in managed) {
-                        when {
-                            // 已被本服务暂停：维持现状
-                            pkg in suspended -> newSuspended += pkg
-
-                            // 已被其他组件暂停（如数字健康）：不纳入管理，避免误恢复
-                            ManagedApps.isSuspended(appContext, pkg) -> continue
-
-                            else -> {
-                                val failed = SystemPm.setPackagesSuspendedCompat(
-                                    appContext, listOf(pkg), true
-                                )
-                                if (pkg !in failed) newSuspended += pkg
-                            }
+                        // 已被本服务暂停且实际仍处于暂停状态：维持现状，避免重复执行命令
+                        if (pkg in suspended && ManagedApps.isSuspended(appContext, pkg)) {
+                            newSuspended += pkg
+                            continue
                         }
+                        val failed = SystemPm.setPackagesSuspendedCompat(
+                            appContext, listOf(pkg), true
+                        )
+                        if (pkg !in failed) newSuspended += pkg
                     }
                     // 曾被服务暂停、但已不满足受管条件（卸载来源变更等）的应用 → 恢复
                     val toRestore = suspended.filter {
@@ -123,6 +119,28 @@ object AppLimitScanner {
 
             Outcome(cached, restrictedNow, managed.size, suspendedCount, summary)
         }
+
+    /**
+     * 恢复所有应恢复的应用：被服务暂停的 + 受管但意外处于暂停状态却未被记录的
+     * （自愈历史遗留 / 卡死状态，保证允许时段一定能解除限制）。
+     * 返回仍处于暂停状态（恢复失败，下轮重试）的包名集合。
+     */
+    private suspend fun restoreAll(
+        context: Context,
+        suspended: Set<String>,
+        managed: Collection<String>,
+        installed: Set<String>
+    ): Set<String> {
+        val targets = buildList {
+            suspended.forEach { if (it in installed) add(it) }
+            managed.forEach {
+                if (it !in suspended && it in installed && ManagedApps.isSuspended(context, it)) {
+                    add(it)
+                }
+            }
+        }.distinct()
+        return restore(context, targets)
+    }
 
     /** 恢复一批被本服务暂停的应用。返回仍处于暂停状态（恢复失败）的包名集合。 */
     private suspend fun restore(context: Context, packages: List<String>): Set<String> {

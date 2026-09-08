@@ -78,10 +78,14 @@ object SystemPm {
      * 语义：应用被暂停后图标置灰、点击弹出系统对话框、后台活动（如音乐）同步暂停；
      * 与 disable-user 冻结不同，应用仍显示在桌面且可被系统设置一键恢复。
      *
-     * 实现方式：直接以 shell 执行 pm 命令（本应用运行于 system UID，子进程继承系统权限）：
-     * - 暂停：pm suspend --user 0 <package>
-     * - 恢复：pm unsuspend --user 0 <package>
-     * 注：pm 命令不支持自定义暂停对话框文案，系统将展示默认提示。
+     * 实现方式：以 shell 执行 pm 命令（本应用运行于 system UID，子进程继承系统权限），
+     * 与 adb shell pm suspend/unsuspend 完全一致的形式：
+     * - 暂停：pm suspend <package>（失败时重试 pm suspend --user 0 <package>）
+     * - 恢复：pm unsuspend <package>（失败时重试 pm unsuspend --user 0 <package>）
+     *
+     * 成功判定：退出码为 0 且输出不含 fail / error / unknown / exception 关键字
+     * （pm 命令失败时退出码可能仍为 0，且输出形如 "Failed to unsuspend: xxx"，
+     * 仅靠退出码或个别关键字会误判成功，导致状态卡死无法恢复）。
      *
      * @return 传入包名中未能成功切换状态的包名集合（空集合=全部成功）
      */
@@ -94,20 +98,26 @@ object SystemPm {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             return@withContext packages.toSet() // Android 9 以下不支持 suspend
         }
+        val action = if (suspended) "suspend" else "unsuspend"
         val failed = HashSet<String>()
         for (pkg in packages) {
-            val cmd = if (suspended) {
-                arrayOf("pm", "suspend", "--user", "0", pkg)
-            } else {
-                arrayOf("pm", "unsuspend", "--user", "0", pkg)
+            // 1. 与 adb shell 完全一致的命令形式（用户已验证可正常解除限制）
+            var r = runShell("pm", action, pkg)
+            // 2. 个别固件仅支持带 --user 的形式，失败时重试
+            if (!isPmSuccess(r)) {
+                r = runShell("pm", action, "--user", "0", pkg)
             }
-            val r = runShell(*cmd)
-            // pm 命令部分失败场景退出码仍为 0，需同时检查输出中的错误关键字
-            if (!r.ok || r.output.contains("Failure", true) || r.output.contains("Error", true)) {
-                failed += pkg
-            }
+            if (!isPmSuccess(r)) failed += pkg
         }
         failed
+    }
+
+    /** pm 命令成功判定：退出码为 0 且输出不含失败关键字。 */
+    private fun isPmSuccess(r: ShellResult): Boolean {
+        if (!r.ok) return false
+        val o = r.output.lowercase()
+        return !(o.contains("fail") || o.contains("error") ||
+            o.contains("unknown") || o.contains("exception"))
     }
 
     /** 暂停 / 解冻应用。优先使用系统 API，异常时回退到 pm 命令。 */

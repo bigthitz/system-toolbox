@@ -85,10 +85,10 @@ object SystemPm {
      *
      * 实现方式：直接调用 PackageManager#setPackagesSuspended（与 Android
      * 数字健康 com.google.android.apps.wellbeing 限制应用使用的方式一致），
-     * 不再依赖 shell 执行 pm 命令：
-     * - API 31+：优先反射调用带 dialogMessage 的五参 SystemApi 版本，
-     *   暂停弹出的系统对话框可展示自定义提示文案；
-     * - API 28~30：调用公开的两参版本（默认系统对话框）；
+     * 不再依赖 shell 执行 pm 命令。该方法（含两参与五参版本）为 @hide 的
+     * SystemApi，公开 SDK 中不存在，需通过反射调用：
+     * - API 31+：优先反射五参版本，暂停弹出的系统对话框可展示自定义提示文案；
+     * - API 28~30：回退反射两参版本（默认系统对话框）；
      * - API 28 以下不支持 suspend，全部视为失败。
      *
      * 需在 manifest 声明 SUSPEND_APPS 权限并以 platform/system 证书签名
@@ -108,29 +108,44 @@ object SystemPm {
         val pm = context.packageManager
         val names = packages.toTypedArray()
         val failed = HashSet<String>()
-        try {
-            // 1. 五参 SystemApi（API 31+）：可携带自定义对话框文案
-            val method = PackageManager::class.java.getMethod(
+
+        // setPackagesSuspended（两参与五参版本）均为 @hide 的 SystemApi，
+        // 公开 SDK 的 android.jar 不包含该方法，只能通过反射调用。
+        // 本应用以 platform/system 证书签名并运行于 system UID，SUSPEND_APPS 权限已授予。
+
+        // 1. 五参版本（API 31+）：可携带自定义对话框文案
+        var result = try {
+            PackageManager::class.java.getMethod(
                 "setPackagesSuspended",
                 Array<String>::class.java,
                 Boolean::class.javaPrimitiveType,
                 PersistableBundle::class.java,
                 PersistableBundle::class.java,
                 String::class.java
-            )
-            @Suppress("UNCHECKED_CAST")
-            val result = method.invoke(
-                pm, names, suspended, null, null, SUSPEND_DIALOG_MESSAGE
-            ) as? Array<String>
-            if (result != null) failed.addAll(result)
+            ).invoke(pm, names, suspended, null, null, SUSPEND_DIALOG_MESSAGE)
         } catch (_: Exception) {
-            // 2. 公开的两参版本（API 28+）：反射不可用（低版本/被裁剪）或调用失败时回退
-            try {
-                failed.addAll(pm.setPackagesSuspended(names, suspended))
+            null
+        }
+
+        // 2. 两参版本（API 28+）：五参不可用（低版本/被裁剪）时回退
+        if (result == null) {
+            result = try {
+                PackageManager::class.java.getMethod(
+                    "setPackagesSuspended",
+                    Array<String>::class.java,
+                    Boolean::class.javaPrimitiveType
+                ).invoke(pm, names, suspended)
             } catch (_: Exception) {
-                // 权限丢失或系统拒绝：全部视为失败，下轮扫描重试
-                failed.addAll(packages)
+                null
             }
+        }
+
+        if (result is Array<*> && result.isNotEmpty()) {
+            // API 返回未成功切换状态的包名数组
+            failed.addAll(result.filterIsInstance<String>())
+        } else if (result == null) {
+            // 两个版本均调用失败（权限丢失或系统拒绝）：全部视为失败，下轮扫描重试
+            failed.addAll(packages)
         }
         failed
     }

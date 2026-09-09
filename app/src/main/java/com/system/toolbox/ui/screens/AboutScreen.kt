@@ -1,8 +1,15 @@
 package com.system.toolbox.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +29,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+
+/** QQ 交流群群号 */
+private const val QQ_GROUP_NUMBER = "193438056"
 
 @Composable
 fun AboutScreen() {
@@ -58,6 +68,61 @@ fun AboutScreen() {
             fontWeight = FontWeight.Medium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
+        Spacer(Modifier.size(10.dp))
+        Text(
+            text = "开发者：yyds",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.size(24.dp))
+        Text(
+            text = "加入QQ群：$QQ_GROUP_NUMBER",
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable { joinQQGroup(context) }
+        )
+    }
+}
+
+/**
+ * 拉起手机 QQ 加入群聊：
+ * - 优先通过 QQ 的加群 scheme 指定包名拉起；
+ * - 未安装 QQ 或指定包名拉起失败时去掉包名再试（可能由其他应用处理）；
+ * - 仍失败则复制群号到剪贴板并提示，方便手动加群。
+ */
+private fun joinQQGroup(context: Context) {
+    val uri = Uri.parse(
+        "mqqopensdkapi://card/show_pslcard" +
+            "?src_type=internal&version=1&uin=$QQ_GROUP_NUMBER" +
+            "&card_type=group&source=qrcode"
+    )
+    try {
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW, uri).apply {
+                setPackage("com.tencent.mobileqq")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        )
+    } catch (_: Exception) {
+        try {
+            context.startActivity(
+                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            )
+        } catch (_: Exception) {
+            copyQQGroupNumber(context)
+        }
+    }
+}
+
+/** 复制群号到剪贴板并提示。 */
+private fun copyQQGroupNumber(context: Context) {
+    try {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        cm?.setPrimaryClip(ClipData.newPlainText("QQ群号", QQ_GROUP_NUMBER))
+        Toast.makeText(context, "已复制群号 $QQ_GROUP_NUMBER，请在QQ中手动加群", Toast.LENGTH_SHORT).show()
+    } catch (_: Exception) {
+        Toast.makeText(context, "加入群失败，群号：$QQ_GROUP_NUMBER", Toast.LENGTH_SHORT).show()
     }
 }
 

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.os.PersistableBundle
 import android.os.Process
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -28,6 +29,9 @@ private data class ShellResult(val ok: Boolean, val output: String)
  *  - 冻结语义 = pm disable-user（应用从桌面消失且不可运行，可从系统设置恢复）。
  */
 object SystemPm {
+
+    /** 暂停应用时系统对话框展示的提示文案（五参 SystemApi 版本生效时可见） */
+    private const val SUSPEND_DIALOG_MESSAGE = "该应用处于限时暂停状态，请在允许使用的时段内打开"
 
     fun isSystemProcess(): Boolean = Process.myUid() == Process.SYSTEM_UID
 
@@ -75,17 +79,20 @@ object SystemPm {
     /**
      * 暂停 / 恢复应用（Suspended 状态）。
      *
-     * 语义：应用被暂停后图标置灰、点击弹出系统对话框、后台活动（如音乐）同步暂停；
+     * 语义：应用被暂停后进入 Suspended 状态，无法点击打开，系统会弹出
+     * 「应用已被暂停」对话框，后台活动（如音乐播放）也会同步暂停；
      * 与 disable-user 冻结不同，应用仍显示在桌面且可被系统设置一键恢复。
      *
-     * 实现方式：以 shell 执行 pm 命令（本应用运行于 system UID，子进程继承系统权限），
-     * 与 adb shell pm suspend/unsuspend 完全一致的形式：
-     * - 暂停：pm suspend <package>（失败时重试 pm suspend --user 0 <package>）
-     * - 恢复：pm unsuspend <package>（失败时重试 pm unsuspend --user 0 <package>）
+     * 实现方式：直接调用 PackageManager#setPackagesSuspended（与 Android
+     * 数字健康 com.google.android.apps.wellbeing 限制应用使用的方式一致），
+     * 不再依赖 shell 执行 pm 命令：
+     * - API 31+：优先反射调用带 dialogMessage 的五参 SystemApi 版本，
+     *   暂停弹出的系统对话框可展示自定义提示文案；
+     * - API 28~30：调用公开的两参版本（默认系统对话框）；
+     * - API 28 以下不支持 suspend，全部视为失败。
      *
-     * 成功判定：退出码为 0 且输出不含 fail / error / unknown / exception 关键字
-     * （pm 命令失败时退出码可能仍为 0，且输出形如 "Failed to unsuspend: xxx"，
-     * 仅靠退出码或个别关键字会误判成功，导致状态卡死无法恢复）。
+     * 需在 manifest 声明 SUSPEND_APPS 权限并以 platform/system 证书签名
+     * （本应用声明 android.uid.system 运行于 system UID，权限已授予）。
      *
      * @return 传入包名中未能成功切换状态的包名集合（空集合=全部成功）
      */
@@ -98,26 +105,34 @@ object SystemPm {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
             return@withContext packages.toSet() // Android 9 以下不支持 suspend
         }
-        val action = if (suspended) "suspend" else "unsuspend"
+        val pm = context.packageManager
+        val names = packages.toTypedArray()
         val failed = HashSet<String>()
-        for (pkg in packages) {
-            // 1. 与 adb shell 完全一致的命令形式（用户已验证可正常解除限制）
-            var r = runShell("pm", action, pkg)
-            // 2. 个别固件仅支持带 --user 的形式，失败时重试
-            if (!isPmSuccess(r)) {
-                r = runShell("pm", action, "--user", "0", pkg)
+        try {
+            // 1. 五参 SystemApi（API 31+）：可携带自定义对话框文案
+            val method = PackageManager::class.java.getMethod(
+                "setPackagesSuspended",
+                Array<String>::class.java,
+                Boolean::class.javaPrimitiveType,
+                PersistableBundle::class.java,
+                PersistableBundle::class.java,
+                String::class.java
+            )
+            @Suppress("UNCHECKED_CAST")
+            val result = method.invoke(
+                pm, names, suspended, null, null, SUSPEND_DIALOG_MESSAGE
+            ) as? Array<String>
+            if (result != null) failed.addAll(result)
+        } catch (_: Exception) {
+            // 2. 公开的两参版本（API 28+）：反射不可用（低版本/被裁剪）或调用失败时回退
+            try {
+                failed.addAll(pm.setPackagesSuspended(names, suspended))
+            } catch (_: Exception) {
+                // 权限丢失或系统拒绝：全部视为失败，下轮扫描重试
+                failed.addAll(packages)
             }
-            if (!isPmSuccess(r)) failed += pkg
         }
         failed
-    }
-
-    /** pm 命令成功判定：退出码为 0 且输出不含失败关键字。 */
-    private fun isPmSuccess(r: ShellResult): Boolean {
-        if (!r.ok) return false
-        val o = r.output.lowercase()
-        return !(o.contains("fail") || o.contains("error") ||
-            o.contains("unknown") || o.contains("exception"))
     }
 
     /** 暂停 / 解冻应用。优先使用系统 API，异常时回退到 pm 命令。 */

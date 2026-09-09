@@ -10,8 +10,8 @@ import kotlinx.coroutines.withContext
  *
  * 由守护服务每 10 秒调用一次，也供 UI 手动触发：
  * - 受管列表每轮自动通过安装来源（getInstallSourceInfo）识别为本工具箱安装的应用，禁止手动增删；
- * - 限制时段（不在任何允许时段内）：通过 pm suspend 命令暂停全部受管应用；
- * - 允许时段 / 限时关闭 / 无配置：通过 pm unsuspend 恢复，
+ * - 限制时段（不在任何允许时段内）：通过 PackageManager#setPackagesSuspended 暂停全部受管应用；
+ * - 允许时段 / 限时关闭 / 无配置：通过 setPackagesSuspended(…, false) 恢复，
  *   并自愈「受管但未被记录的暂停状态」，保证限制一定能解除。
  */
 object AppLimitScanner {
@@ -96,7 +96,7 @@ object AppLimitScanner {
                     restrictedNow = true
                     val newSuspended = HashSet<String>()
                     for (pkg in managed) {
-                        // 已被本服务暂停且实际仍处于暂停状态：维持现状，避免重复执行命令
+                    // 已被本服务暂停且实际仍处于暂停状态：维持现状，避免重复调用 API
                         if (pkg in suspended && ManagedApps.isSuspended(appContext, pkg)) {
                             newSuspended += pkg
                             continue

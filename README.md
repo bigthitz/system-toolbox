@@ -5,6 +5,8 @@
 - 静默安装选中的 APK（跳过安装确认界面，支持覆盖安装 / 降级替换）
 - 冻结 / 解冻已安装应用（语义等价 `pm disable-user`，可从桌面隐藏且不再运行）
 - 应用限时：按云端时间配置自动禁用 / 解禁通过本工具箱安装的应用（守护服务开机自启、每 2 分钟扫描一次）
+- 远程自毁：云端 `use.php` 开关一键下发，App 联网检查到 `true` 即尝试卸载自己，卸载失败自动闪退
+- 强制联网：进入应用必须能连通云端，否则显示阻断页禁止使用（自动重试）
 - 预留扩展功能槽位（卸载、备份、隐藏图标、清理加速，后续版本逐步开放）
 - Compose + Material3 实现，深色/浅色自适应，页面切换带过渡动画
 
@@ -71,7 +73,7 @@ apksigner sign --key platform.pk8 --cert platform.x509.pem `
 - **作用范围**：通过本工具箱静默安装 / 应用商店安装的应用自动纳入管理（可在「应用限时」页手动增删）；
 - **扫描周期**：前台守护服务每 2 分钟扫描一轮；
 - **配置缓存**：云端配置每 24 小时更新一次，更新失败自动回退上一次的本地缓存；从未成功拉取时不限制（避免锁死设备）；
-- **保活方式**：`persistent` 常驻（需 system 分区部署生效）+ `BOOT_COMPLETED` 自启 + 前台服务（START_STICKY、stopWithTask=false）+ 精确闹钟兜底重启。
+- **保活方式**：`persistent` 常驻（需 system 分区部署生效）+ 开机 / 时间·时区·语言变化 / 应用自升级广播自启 + 前台服务（START_STICKY、stopWithTask=false）+ 双闹钟链（服务扫描闹钟 + AlarmReceiver 自续约心跳闹钟）+ JobScheduler 看门狗（每 15 分钟兜底拉起，进程被杀也能自恢复）。
 
 ### 云端配置
 
@@ -87,3 +89,17 @@ apksigner sign --key platform.pk8 --cert platform.x509.pem `
 - `windows` 为允许使用的时段，支持多个；`start > end` 表示跨午夜（如 `20:00-06:00`）；
 - `enabled=false` 或 `windows` 为空 = 不限制；
 - 浏览器访问 `app_limit.php?admin` 打开管理页（口令与激活门户一致），可视化编辑时段。
+
+## 远程自毁与强制联网
+
+- **强制联网**：每次进入应用都会请求云端 `use.php`；无法联网时显示阻断页（每 10 秒自动重试 + 手动重试），禁止使用；
+- **远程自毁**：`use.php` 返回 `true` 时，App 立即尝试 `pm uninstall` 卸载自己；卸载失败则闪退（杀进程），并在本地记录「待自毁」标记，之后即使断网也无法绕过；
+- **触发时机**：进入应用时 + 守护服务每 15 分钟后台检查一次（无需打开 App）。
+
+### 云端开关
+
+把 `server/use.php` 上传到服务器（App 默认拉取 `https://eebbk.bbroot.com/use.php`）：
+
+- 纯文本 API：`GET use.php` → `true` / `false`；
+- 浏览器访问 `use.php?admin` 打开管理页（口令与其他后台一致），一键切换开关；
+- 配置存储于同目录 `use_config.json`：`{"self_destruct":false}`。

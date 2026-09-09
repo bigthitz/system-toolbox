@@ -18,6 +18,7 @@ import androidx.core.app.NotificationCompat
 import com.system.toolbox.MainActivity
 import com.system.toolbox.R
 import com.system.toolbox.core.AppLimitScanner
+import com.system.toolbox.core.SelfDestruct
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,12 +30,18 @@ import kotlinx.coroutines.launch
  * 应用限时守护服务（前台服务）：
  * - 开机自启（BootReceiver / persistent 进程启动时拉起）；
  * - 每 10 秒扫描一轮受管应用（按安装来源自动识别），按云端时间配置自动暂停/恢复；
- * - 保活三重保障：START_STICKY + stopWithTask=false + 精确闹钟兜底重启。
+ * - 每 15 分钟检查一次云端自毁开关（use.php 返回 true 时卸载自己/闪退）；
+ * - 保活多层保障：START_STICKY + stopWithTask=false + 服务扫描闹钟 +
+ *   独立心跳闹钟链（GuardKeepAlive）+ JobScheduler 看门狗 + 系统广播拉起。
  */
 class AppLimitService : Service() {
 
     companion object {
         const val SCAN_INTERVAL_MS = 10 * 1000L
+
+        /** 云端自毁开关检查周期（无需打开 App，后台周期检查） */
+        const val DESTROY_CHECK_INTERVAL_MS = 15 * 60 * 1000L
+
         private const val CHANNEL_ID = "app_limit_guard"
         private const val NOTIFICATION_ID = 1001
         private const val ALARM_REQUEST_CODE = 2001
@@ -68,6 +75,8 @@ class AppLimitService : Service() {
         isRunning = true
         promoteForeground()
         ensureScanLoop(0L)
+        // 看门狗任务兜底（进程被杀后由 JobScheduler 回调拉起）
+        GuardKeepAlive.scheduleWatchdogJob(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -100,6 +109,9 @@ class AppLimitService : Service() {
     @Volatile
     private var lastScanAt = 0L
 
+    @Volatile
+    private var lastDestroyCheckAt = 0L
+
     /** 启动扫描循环（仅一条链）。 */
     private fun ensureScanLoop(initialDelayMs: Long) {
         if (!looping.compareAndSet(false, true)) return
@@ -116,6 +128,8 @@ class AppLimitService : Service() {
     private suspend fun runScan() {
         if (!scanning.compareAndSet(false, true)) return
         try {
+            // 云端自毁开关检查（每 15 分钟一次；离线/失败不影响本轮扫描）
+            checkSelfDestruct()
             val outcome = AppLimitScanner.scan(this@AppLimitService)
             lastOutcome = outcome
             lastScanAt = SystemClock.elapsedRealtime()
@@ -125,6 +139,19 @@ class AppLimitService : Service() {
             // 单轮失败不影响后续轮次
         } finally {
             scanning.set(false)
+        }
+    }
+
+    /**
+     * 云端自毁开关：每 15 分钟检查一次；云端返回 true 时执行卸载/闪退
+     * （进程随即终止，成功时不会再返回；离线或拉取失败直接跳过）。
+     */
+    private suspend fun checkSelfDestruct() {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastDestroyCheckAt < DESTROY_CHECK_INTERVAL_MS) return
+        lastDestroyCheckAt = now
+        if (SelfDestruct.fetchFlag() == true) {
+            SelfDestruct.destroy(this@AppLimitService)
         }
     }
 

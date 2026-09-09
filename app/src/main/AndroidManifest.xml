@@ -69,12 +69,16 @@
             android:exported="true"
             tools:ignore="ExportedReceiver" />
 
-        <!-- 应用限时守护：开机自启 -->
+        <!-- 应用限时守护：开机自启 + 时间/时区/语言变化 + 应用自升级后重建保活链路 -->
         <receiver
             android:name=".service.BootReceiver"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.LOCALE_CHANGED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 
@@ -94,6 +98,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Keeps apps installed by this toolbox suspended outside the allowed time windows fetched from remote config (parental time-limit guard)" />
         </service>
+
+        <!-- 应用限时守护：JobScheduler 看门狗（进程被杀后由系统定期回调拉起） -->
+        <service
+            android:name=".service.GuardWatchdogJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
     </application>
 
